@@ -1,0 +1,30 @@
+{
+  "id": "marketscan-ccae-mdcr-2023-v1",
+  "dataYear": 2023,
+  "dictionaryVersion": "2023 v1.0",
+  "families": {"CCAE": "Commercial", "MDCR": "Medicare"},
+  "dictionaryUrl": "https://chadmilando.com/CHDS_bookdown/pdfs/Marketscan/Data_Dictionary.pdf",
+  "guideUrl": "https://chadmilando.com/CHDS_bookdown/pdfs/Marketscan/User_Guide.pdf",
+  "verifiedOn": "2026-09-16",
+  "tables": {
+    "O": {"label": "Outpatient services", "date": "SVCDATE", "diagnoses": ["DX1", "DX2", "DX3", "DX4"], "page": 22},
+    "S": {"label": "Inpatient services", "date": "SVCDATE", "diagnoses": ["PDX", "DX1", "DX2", "DX3", "DX4"], "page": 19},
+    "I": {"label": "Inpatient admissions", "date": "ADMDATE", "diagnoses": ["PDX", "DX1", "DX2", "DX3", "DX4", "DX5", "DX6", "DX7", "DX8", "DX9", "DX10", "DX11", "DX12", "DX13", "DX14", "DX15"], "page": 12},
+    "F": {"label": "Facility headers", "date": "SVCDATE", "diagnoses": ["DX1", "DX2", "DX3", "DX4", "DX5", "DX6", "DX7", "DX8", "DX9"], "page": 16},
+    "D": {"label": "Pharmacy claims", "date": "SVCDATE", "page": 24},
+    "T": {"label": "Enrollment detail", "date": "DTSTART", "endDate": "DTEND", "page": 29}
+  },
+  "domains": {
+    "DX": {"label": "Diagnosis · ICD-10-CM", "sources": ["O", "S", "I", "F"], "typeField": "DXVER", "typeValue": "0"},
+    "CPT": {"label": "Procedure · CPT", "sources": ["O", "S"], "field": "PROC1", "typeField": "PROCTYP", "typeValue": "1"},
+    "HCPCS": {"label": "Procedure · HCPCS", "sources": ["O", "S"], "field": "PROC1", "typeField": "PROCTYP", "typeValue": "7"},
+    "NDC": {"label": "Medication · NDC", "sources": ["D"], "field": "NDCNUM"}
+  },
+  "notes": [
+    {"title": "Age is reported age", "text": "Age follows MarketScan privacy conventions. It is not an exact age calculated on the index date. Values at or above 100 are grouped at 100.", "source": "dictionary", "page": 32},
+    {"title": "Some diagnosis codes are masked", "text": "The 2023 release masks or groups selected diagnosis codes. Review the guide before defining a phenotype that depends on those codes.", "source": "guide", "page": 68},
+    {"title": "Enrollment has its own timeline", "text": "Use enrollment detail dates to establish observation time. Pharmacy capture is identified by RX on enrollment records.", "source": "dictionary", "page": 29},
+    {"title": "Medicare includes multiple plan types", "text": "The 2023 Medicare database includes Supplemental and Advantage plans. This first version selects the database as a whole.", "source": "guide", "page": 5},
+    {"title": "Future codebooks remain separate", "text": "Each additional data year will receive its own schema and reviewed changes. The current extraction program accepts 2023 only.", "source": "guide", "page": 72}
+  ]
+}
