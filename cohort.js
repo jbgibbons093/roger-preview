@@ -1,5 +1,6 @@
+import { treeFor, logicIssues, logicText, usesOr } from './logic.js';
 export const TABLES = ['O', 'S', 'I', 'F', 'D', 'T'];
-export const DOMAINS = { DX: ['O', 'S', 'I', 'F'], CPT: ['O', 'S'], HCPCS: ['O', 'S'], NDC: ['D'] };
+export const DOMAINS = { DX: ['O', 'S', 'I', 'F'], PCS: ['I', 'S', 'O'], CPT: ['O', 'S'], HCPCS: ['O', 'S'], DRG: ['I', 'S'], NDC: ['D'] };
 export const schemaId = 'marketscan-ccae-mdcr-2023-v1';
 export function freshDefinition() {
   return {
@@ -8,7 +9,8 @@ export function freshDefinition() {
     enrollment: true, baseline: 90, followup: 0, gap: 0, rx: false,
     index: { domain: 'DX', sources: ['O', 'S'], codes: '' }, rules: [],
     extractBefore: 90, extractAfter: 0, outputs: ['O', 'D', 'T'],
-    mapping: Object.fromEntries(TABLES.map(t => [t, ''])), inputPath: '', outputPath: ''
+    mapping: Object.fromEntries(TABLES.map(t => [t, ''])), inputPath: '', outputPath: '',
+    indexOrder: 'FIRST', logic: null, graph: {positions:{},notes:{}}
   };
 }
 export function parseCodes(text, domain) {
@@ -19,6 +21,8 @@ export function parseCodes(text, domain) {
     const normalized = token.replace(/\./g, '').replace(/\*$/, '');
     if (!/^[A-Z0-9]+$/.test(normalized)) throw new Error(`Invalid code ${token}. Use letters, digits, dots, and a trailing *.`);
     if (domain === 'DX' && !/^[A-Z][0-9][A-Z0-9]{1,5}$/.test(normalized)) throw new Error(`Diagnosis ${token} must contain 3–7 characters in ICD-10-CM format.`);
+    if (domain === 'PCS' && !(prefix ? /^[0-9A-HJ-NP-Z]{3,7}$/ : /^[0-9A-HJ-NP-Z]{7}$/).test(normalized)) throw new Error(`Check ICD-10-PCS ${token}. Exact codes contain seven characters. Families require at least three.`);
+    if (domain === 'DRG' && (!/^\d{3}$/.test(normalized) || prefix)) throw new Error('MS-DRG codes require three digits, including leading zeros. Use exact codes.');
     if (domain === 'CPT' && !(prefix ? /^[0-9A-Z]{2,5}$/ : /^[0-9]{4}[0-9A-Z]$/).test(normalized)) throw new Error(`Check the CPT code ${token}. Exact codes contain five characters.`);
     if (domain === 'HCPCS' && !(prefix ? /^[A-Z][0-9]{1,4}$/ : /^[A-Z][0-9]{4}$/).test(normalized)) throw new Error(`Check the HCPCS code ${token}. Exact codes contain a letter and four digits.`);
     if (domain === 'NDC' && (!/^\d{11}$/.test(normalized) || prefix)) throw new Error('NDC codes must contain exactly 11 digits, including leading zeros. Use exact codes.');
@@ -31,6 +35,8 @@ const validDate = value => /^2023-\d{2}-\d{2}$/.test(value) && Number.isFinite(D
 export function readDefinition(candidate) {
   if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) throw new Error('Expected a cohort definition object.');
   const base = freshDefinition();
+  // Older definitions use the original first-index, all-AND semantics.
+  candidate={indexOrder:'FIRST',logic:null,graph:{positions:{},notes:{}},...candidate};
   if (candidate.schemaId !== schemaId) throw new Error('This definition requires a different year or schema version.');
   for (const [key, value] of Object.entries(base)) {
     if (!Object.hasOwn(candidate, key)) throw new Error(`Missing definition field ${key}.`);
@@ -40,6 +46,17 @@ export function readDefinition(candidate) {
   }
   for (const [key, choices] of Object.entries({family:['CCAE','MDCR'],edition:['A','B'],sex:['ALL','1','2']})) if (!choices.includes(candidate[key])) throw new Error(`Unsupported ${key}.`);
   if (!Array.isArray(candidate.rules) || candidate.rules.length > 20) throw new Error('Expected up to 20 eligibility criteria.');
+  if(!['FIRST','LAST'].includes(candidate.indexOrder))throw new Error('Choose first or last matching index event.');
+  if(candidate.logic!==null){const issues=logicIssues(candidate.logic,candidate.rules.length,true);if(issues.length)throw new Error(issues[0]);}
+  if(!candidate.graph||typeof candidate.graph!=='object')throw new Error('Invalid graph metadata.');
+  for(const kind of ['positions','notes']){
+    const values=candidate.graph[kind];
+    if(!values||typeof values!=='object'||Array.isArray(values)||Object.keys(values).length>70)throw new Error('Invalid graph metadata.');
+    for(const [key,value] of Object.entries(values)){
+      if(!/^(population|index|demographics|enrollment|output|r\d{1,2}|g\d{1,3})$/.test(key))throw new Error('Invalid graph node.');
+      if(kind==='notes'?(typeof value!=='string'||value.length>4000):(!value||!['x','y'].every(axis=>Number.isFinite(value[axis])&&value[axis]>=0&&value[axis]<=20000)))throw new Error('Invalid node note or position.');
+    }
+  }
   for (const [i, r] of [candidate.index,...candidate.rules].entries()) {
     if (!r || !Object.hasOwn(DOMAINS,r.domain) || typeof r.codes !== 'string' || r.codes.length > 20000) throw new Error('Invalid event definition.');
     if (!Array.isArray(r.sources) || r.sources.some(t=>!DOMAINS[r.domain].includes(t)) || new Set(r.sources).size !== r.sources.length) throw new Error('Invalid claim sources.');
@@ -54,6 +71,7 @@ export function readDefinition(candidate) {
 export function validateDefinition(d) {
   try { readDefinition(d); } catch (error) { return [error.message]; }
   const errors = [];
+  errors.push(...logicIssues(treeFor(d),d.rules.length));
   if (d.schemaId !== schemaId) errors.push('This builder supports the 2023 Commercial and Medicare schema.');
   if (typeof d.name !== 'string' || !d.name.trim() || d.name.length > 120 || /[\x00-\x1f]/.test(d.name)) errors.push('Enter a cohort name of 1–120 characters.');
   if (!['CCAE', 'MDCR'].includes(d.family)) errors.push('Choose Commercial or Medicare.');
@@ -105,9 +123,10 @@ export function compileSas(d, engine) {
   const codeLines = rules.flatMap((r, i) => parseCodes(r.codes, r.domain).map(c => `${i + 1}|${c.code}|${c.match}`)).join('\n');
   const parameters = { age_min: d.ageMin, age_max: d.ageMax, sex: d.sex, enrollment: +d.enrollment, baseline: d.baseline, followup: d.followup, gap: d.gap, rx: +d.rx, extract_before: d.extractBefore, extract_after: d.extractAfter, outputs: d.outputs.join(' '), outlib: d.outputPath ? 'RGCUT' : 'WORK' };
   const missing = connectionIssues(d).length;
+  const tree=treeFor(d), advanced=usesOr(tree), order=d.indexOrder||'FIRST';
   return `/* Generated by ROGER. MarketScan 2023. SAS 9.4.
    Run in your approved SAS environment. Review the definition and mappings.
-   First matching event in the index window is selected BEFORE later filters.
+   ${order==='LAST'?'Last':'First'} matching event in the index window is selected BEFORE later filters.
    Ties use source table letter then SEQNUM. One row per ENROLID.
    Distinct service days determine repeated-event criteria.
    This program has not been executed by the browser.
@@ -118,6 +137,8 @@ ${d.inputPath ? `libname MS ${quote(d.inputPath)} access=readonly;` : '/* Assign
 ${d.outputPath ? `libname RGCUT ${quote(d.outputPath)};` : '/* Outputs will be created in WORK for this SAS session. */'}
 ${TABLES.map(t => `%let map_${t}=${d.mapping[t]};`).join('\n')}
 ${Object.entries(parameters).map(([k, v]) => `%let ${k}=${v};`).join('\n')}
+%let index_order=${order};
+%let advanced_logic=${+advanced};
 %let index_start=%sysfunc(inputn(${d.start.replaceAll('-', '')},yymmdd8.));
 %let index_end=%sysfunc(inputn(${d.end.replaceAll('-', '')},yymmdd8.));
 
@@ -128,6 +149,9 @@ data work._rg_definition;
   family=${quote(d.family)};
   edition=${quote(d.edition)};
   data_year=2023;
+  length index_order $5 logic_json $12000;
+  index_order=${quote(order)};
+  logic_json=${quote(JSON.stringify(tree))};
   created_at=datetime();
   format created_at datetime20. index_start index_end yymmdd10.;
   index_start=&index_start;
@@ -153,6 +177,14 @@ datalines4;
 ${codeLines}
 ;;;;
 run;
+
+%macro rg_apply_logic;
+  data work._rg_cohort;
+    set work._rg_cohort;
+    ${d.rules.length?`if ${logicText(tree,i=>`_rg_pass_${i+2}=1`)};`:''}
+    drop _rg_pass_:;
+  run;
+%mend;
 
 ${engine}
 

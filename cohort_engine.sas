@@ -1,4 +1,4 @@
-/* ROGER cohort engine 0.1.0. SAS 9.4.
+/* ROGER cohort engine 0.2.0. SAS 9.4.
    Input mappings use the 2023 Commercial/Medicare data dictionary.
    Work tables beginning _rg_ are reserved for this run.
    Claims and enrollment remain in SAS. The browser supplies definitions only. */
@@ -64,15 +64,21 @@
       %if &table=I %then %let fields=PDX DX1 DX2 DX3 DX4 DX5 DX6 DX7 DX8 DX9 DX10 DX11 DX12 DX13 DX14 DX15;
     %end;
     %else %if &domain=NDC %then %let fields=NDCNUM;
+    %else %if &domain=DRG %then %let fields=DRG;
+    %else %if &domain=PCS and &table=I %then %do;
+      %let fields=PROC1 PROC2 PROC3 PROC4 PROC5 PROC6 PROC7 PROC8 PROC9 PROC10 PROC11 PROC12 PROC13 PROC14 PROC15;
+    %end;
     %else %do;
       %let fields=PROC1;
       %rg_require(&ds,PROCTYP,C);
       %if &domain=CPT %then %let filter=PROCTYP='1';
+      %else %if &domain=PCS %then %let filter=PROCTYP='0';
       %else %let filter=PROCTYP='7';
     %end;
     %let fieldtypes=;
     %do j=1 %to %sysfunc(countw(&fields));
-      %let fieldtypes=&fieldtypes C;
+      %if &domain=DRG %then %let fieldtypes=&fieldtypes N;
+      %else %let fieldtypes=&fieldtypes C;
     %end;
     %rg_require(&ds,ENROLID &dt AGE SEX SEQNUM YEAR &fields,N N N C N N &fieldtypes);
     data work._rg_matching;
@@ -89,9 +95,24 @@
       if missing(ENROLID) or missing(&dt) then delete;
       event_date=&dt;
       source="&table";
-      array codes {*} $ &fields;
+      %if &domain=DRG %then %do;
+        array codes {*} &fields;
+      %end;
+      %else %do;
+        array codes {*} $ &fields;
+      %end;
       do _j=1 to dim(codes);
-        _value=compress(upcase(strip(codes[_j])),'. ');
+        %if &domain=DRG %then %do;
+          if missing(codes[_j]) or codes[_j] ne int(codes[_j]) or codes[_j]<0 or codes[_j]>999 then continue;
+          _value=put(codes[_j],z3.);
+        %end;
+        %else %do;
+          _value=compress(upcase(strip(codes[_j])),'. ');
+        %end;
+        /* Admission procedure fields can mix systems. PCS has seven characters. */
+        %if &domain=PCS %then %do;
+          if not prxmatch('/^[0-9A-HJ-NP-Z]{7}$/',strip(_value)) then continue;
+        %end;
         if not missing(_value) then do;
           code=_value;
           match_type='EXACT';
@@ -150,7 +171,7 @@
   %rg_events(1,&domain,&sources);
   proc sort data=work._rg_events(where=(event_date >= &index_start and event_date <= &index_end))
     out=work._rg_index;
-    by ENROLID event_date source SEQNUM;
+    by ENROLID %if &index_order=LAST %then %do; descending %end; event_date source SEQNUM;
   run;
   data work._rg_cohort;
     set work._rg_index;
@@ -163,7 +184,7 @@
     keep ENROLID index_date AGE SEX index_source index_seqnum;
   run;
   %rg_checkpoint(index event);
-  %rg_count(1,First matching index event);
+  %rg_count(1,&index_order matching index event);
   data work._rg_cohort;
     set work._rg_cohort;
     if missing(AGE) or AGE < &age_min or AGE > &age_max then delete;
@@ -230,15 +251,27 @@
         on c.ENROLID=e.ENROLID and e.event_date >= c.index_date+&lower
         and e.event_date <= c.index_date+&upper
       group by c.ENROLID;
-      create table work._rg_next as select c.* from work._rg_cohort c
+      create table work._rg_next as select c.*
+      %if &advanced_logic=1 %then %do;
+        , (h.hit_days %if &mode=INCLUDE %then %do; >= %end; %else %do; < %end; &days) as _rg_pass_&rid
+      %end;
+      from work._rg_cohort c
       inner join work._rg_hitcounts h on c.ENROLID=h.ENROLID
-      %if &mode=INCLUDE %then %do; where h.hit_days >= &days %end;
-      %else %do; where h.hit_days < &days %end;
+      %if &advanced_logic=0 %then %do;
+        %if &mode=INCLUDE %then %do; where h.hit_days >= &days %end;
+        %else %do; where h.hit_days < &days %end;
+      %end;
       ;
     quit;
     data work._rg_cohort; set work._rg_next; run;
     %rg_checkpoint(rule &rid);
-    %rg_count(%eval(&rid+2),&mode rule &rid - &domain);
+    %if &advanced_logic=0 %then %rg_count(%eval(&rid+2),&mode rule &rid - &domain);
+  %end;
+
+  %if &advanced_logic=1 %then %do;
+    %rg_apply_logic;
+    %rg_checkpoint(condition tree);
+    %rg_count(%eval(&n_rules+3),Combined AND OR condition tree);
   %end;
 
   /* Prepare all extracts in WORK before creating the delivery datasets. */

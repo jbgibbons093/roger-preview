@@ -16,6 +16,8 @@
   },
   "domains": {
     "DX": {"label": "Diagnosis · ICD-10-CM", "sources": ["O", "S", "I", "F"], "typeField": "DXVER", "typeValue": "0"},
+    "PCS": {"label": "Procedure · ICD-10-PCS", "sources": ["I", "S", "O"], "fieldsI": ["PROC1", "PROC2", "PROC3", "PROC4", "PROC5", "PROC6", "PROC7", "PROC8", "PROC9", "PROC10", "PROC11", "PROC12", "PROC13", "PROC14", "PROC15"], "fieldServices": "PROC1", "typeFieldServices": "PROCTYP", "typeValueServices": "0"},
+    "DRG": {"label": "Admission group · MS-DRG", "sources": ["I", "S"], "field": "DRG", "version": "41.0"},
     "CPT": {"label": "Procedure · CPT", "sources": ["O", "S"], "field": "PROC1", "typeField": "PROCTYP", "typeValue": "1"},
     "HCPCS": {"label": "Procedure · HCPCS", "sources": ["O", "S"], "field": "PROC1", "typeField": "PROCTYP", "typeValue": "7"},
     "NDC": {"label": "Medication · NDC", "sources": ["D"], "field": "NDCNUM"}
