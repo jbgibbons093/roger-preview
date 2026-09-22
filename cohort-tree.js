@@ -1,3 +1,4 @@
+import { isCdm } from './cdm.js';
 import { treeFor, groupsIn, logicText, moveCondition } from './logic.js';
 
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -7,10 +8,10 @@ let selected='index', zoom=0.85, expanded=false;
 function graphModel(d,catalog){
   const tree=treeFor(d), nodes=[],edges=[];
   const add=(id,title,kind,body,x,y)=>nodes.push({id,title,kind,body,...(d.graph.positions[id]||{x,y})});
-  add('population','Source population','stage',`${catalog.families[d.family]} · 2023 · Set ${d.edition}`,30,30);
+  add('population','Source population','stage',isCdm(d)?`Mini-Sentinel CDM · ${d.yearStart}–${d.yearEnd}`:`${catalog.families[d.family]} · 2023 · Set ${d.edition}`,30,30);
   add('index','Index event','event',`${d.indexOrder==='LAST'?'Last':'First'} ${catalog.domains[d.index.domain].label}\n${d.index.codes||'Choose index codes'}\n${d.start} to ${d.end}`,270,30);
-  add('demographics','Demographics','stage',`Reported age ${d.ageMin}–${d.ageMax}\n${d.sex==='ALL'?'All recorded sex values':d.sex==='1'?'Male':'Female'}\nApplied after index selection`,510,30);
-  add('enrollment','Observation','stage',d.enrollment?`${d.baseline} days before · ${d.followup} days after\nMaximum gap ${d.gap} days\n${d.rx?'Pharmacy capture required':'Continuous enrollment required'}`:'Enrollment optional',510,250);
+  add('demographics','Demographics','stage',`${isCdm(d)?'Age at index':'Reported age'} ${d.ageMin}–${d.ageMax}\n${d.sex==='ALL'?'All recorded sex values':['1','M'].includes(d.sex)?'Male':['2','F'].includes(d.sex)?'Female':d.sex}\nApplied after index selection`,510,30);
+  add('enrollment','Observation','stage',d.enrollment?`${d.baseline} days before · ${d.followup} days after\nMaximum gap ${d.gap} days\n${isCdm(d)?(d.rx?'Medical + drug coverage required':'Medical coverage required'):(d.rx?'Pharmacy capture required':'Continuous enrollment required')}`:'Enrollment optional',510,250);
   let leaf=0;
   function branch(group,depth){
     const start=leaf;

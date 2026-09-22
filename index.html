@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <title>ROGER · Cohort workspace</title>
-  <meta name="description" content="Define MarketScan cohorts visually and export a reviewable SAS 9.4 extraction program.">
+  <meta name="description" content="Define Mini-Sentinel CDM cohorts visually and export a reviewable SAS 9.4 extraction program.">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23132135'/%3E%3Cpath d='M9 24V8h7a5 5 0 0 1 0 10h-7m7 0 7 6' fill='none' stroke='%2358d1bd' stroke-width='3'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="./style.css">
 </head>
@@ -19,14 +19,14 @@
     <div class="side-bottom"><span class="engine-symbol">SAS</span><div>SAS 9.4 engine<small>Program export mode</small></div></div>
   </aside>
   <div class="workspace">
-    <header class="topbar"><div><span class="breadcrumb">Workspace</span><span class="slash">/</span><span>New cohort</span></div><div class="top-actions"><span id="save-state">Local draft</span><button class="button subtle" id="import-button">Open definition</button><button class="button" id="save-button">Save draft</button></div></header>
+    <header class="topbar"><div><span class="breadcrumb">Workspace</span><span class="slash">/</span><span>New cohort</span></div><div class="top-actions"><label class="profile-label" for="data-profile">Data model</label><select id="data-profile" aria-label="Data model"><option value="CDM">Mini-Sentinel CDM</option><option value="RAW">Legacy MarketScan 2023</option></select><span id="save-state">Local draft</span><button class="button subtle" id="import-button">Open definition</button><button class="button" id="save-button">Save draft</button></div></header>
     <main id="main">
-      <div class="heading"><div><p class="eyebrow">MARKETSCAN · 2023</p><h1>Build your cohort.</h1><p class="subtitle">Turn a research question into a reproducible data cut.</p></div><button class="button primary" id="review-button">Review cohort <span aria-hidden="true">→</span></button></div>
-      <div class="mode-banner"><span class="tag">DEFINITION MODE</span><span>Build and save cohort rules, then export to SAS. MarketScan data stays in your SAS environment.</span></div>
-      <nav class="tabs" aria-label="Workspace views"><button data-view="graph" class="active">Cohort tree</button><button data-view="builder">Cohort definition</button><button data-view="review">Review &amp; SAS</button><button data-view="codebook">2023 codebook</button></nav>
-      <div id="app" aria-live="off"><p>Loading the 2023 schema…</p></div>
+      <div class="heading"><div><p class="eyebrow">MINI-SENTINEL CDM</p><h1>Build your cohort.</h1><p class="subtitle">Turn a research question into a reproducible data cut.</p></div><button class="button primary" id="review-button">Review cohort <span aria-hidden="true">→</span></button></div>
+      <div class="mode-banner"><span class="tag">DEFINITION MODE</span><span>Build and save cohort rules, then export to SAS. Source data stays in your SAS environment.</span></div>
+      <nav class="tabs" aria-label="Workspace views"><button data-view="graph" class="active">Cohort tree</button><button data-view="builder">Cohort definition</button><button data-view="review">Review &amp; SAS</button><button data-view="codebook">CDM dictionary</button></nav>
+      <div id="app" aria-live="off"><p>Loading the CDM schema…</p></div>
     </main>
-    <footer><span>ROGER · Cohort workspace</span><span>2023 Commercial &amp; Medicare · Schema v1.0</span></footer>
+    <footer><span>ROGER · Cohort workspace</span><span>Mini-Sentinel CDM v3.0</span></footer>
   </div>
   <input type="file" id="import-file" accept="application/json,.json" hidden>
   <div id="toast" role="status" hidden></div>

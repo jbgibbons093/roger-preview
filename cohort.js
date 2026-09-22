@@ -1,3 +1,4 @@
+import * as cdm from './cdm.js';
 import { treeFor, logicIssues, logicText, usesOr } from './logic.js';
 export const TABLES = ['O', 'S', 'I', 'F', 'D', 'T'];
 export const DOMAINS = { DX: ['O', 'S', 'I', 'F'], PCS: ['I', 'S', 'O'], CPT: ['O', 'S'], HCPCS: ['O', 'S'], DRG: ['I', 'S'], NDC: ['D'] };
@@ -20,6 +21,8 @@ export function parseCodes(text, domain) {
     const prefix = token.endsWith('*');
     const normalized = token.replace(/\./g, '').replace(/\*$/, '');
     if (!/^[A-Z0-9]+$/.test(normalized)) throw new Error(`Invalid code ${token}. Use letters, digits, dots, and a trailing *.`);
+    if (domain === 'DX9' && !/^(?:[0-9]{3,5}|V[0-9]{2,4}|E[0-9]{3,4})$/.test(normalized)) throw new Error(`Check ICD-9-CM diagnosis ${token}. Preserve leading zeros.`);
+    if (domain === 'PX9' && !/^[0-9]{2,4}$/.test(normalized)) throw new Error(`Check ICD-9-CM procedure ${token}. Use 2–4 digits, preserving leading zeros.`);
     if (domain === 'DX' && !/^[A-Z][0-9][A-Z0-9]{1,5}$/.test(normalized)) throw new Error(`Diagnosis ${token} must contain 3–7 characters in ICD-10-CM format.`);
     if (domain === 'PCS' && !(prefix ? /^[0-9A-HJ-NP-Z]{3,7}$/ : /^[0-9A-HJ-NP-Z]{7}$/).test(normalized)) throw new Error(`Check ICD-10-PCS ${token}. Exact codes contain seven characters. Families require at least three.`);
     if (domain === 'DRG' && (!/^\d{3}$/.test(normalized) || prefix)) throw new Error('MS-DRG codes require three digits, including leading zeros. Use exact codes.');
@@ -34,17 +37,19 @@ const validDate = value => /^2023-\d{2}-\d{2}$/.test(value) && Number.isFinite(D
 // Drafts may be unfinished, but their structure must be safe to render and edit.
 export function readDefinition(candidate) {
   if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) throw new Error('Expected a cohort definition object.');
-  const base = freshDefinition();
+  const base = cdm.isCdm(candidate) ? cdm.freshDefinition() : freshDefinition();
+  const tables = cdm.isCdm(candidate) ? cdm.TABLES : TABLES;
+  const domains = cdm.isCdm(candidate) ? cdm.DOMAINS : DOMAINS;
   // Older definitions use the original first-index, all-AND semantics.
   candidate={indexOrder:'FIRST',logic:null,graph:{positions:{},notes:{}},...candidate};
-  if (candidate.schemaId !== schemaId) throw new Error('This definition requires a different year or schema version.');
+  if (candidate.schemaId !== base.schemaId) throw new Error('This definition requires a different year or schema version.');
   for (const [key, value] of Object.entries(base)) {
     if (!Object.hasOwn(candidate, key)) throw new Error(`Missing definition field ${key}.`);
     if (typeof value === 'string' && (typeof candidate[key] !== 'string' || candidate[key].length > 1000)) throw new Error(`Invalid text field ${key}.`);
     if (typeof value === 'number' && candidate[key] !== null && !Number.isFinite(candidate[key])) throw new Error(`Invalid numeric field ${key}.`);
     if (typeof value === 'boolean' && typeof candidate[key] !== 'boolean') throw new Error(`Invalid option ${key}.`);
   }
-  for (const [key, choices] of Object.entries({family:['CCAE','MDCR'],edition:['A','B'],sex:['ALL','1','2']})) if (!choices.includes(candidate[key])) throw new Error(`Unsupported ${key}.`);
+  for (const [key, choices] of Object.entries(cdm.isCdm(candidate)?{family:['CDM'],edition:['3.0'],sex:['ALL','M','F','A','U']}:{family:['CCAE','MDCR'],edition:['A','B'],sex:['ALL','1','2']})) if (!choices.includes(candidate[key])) throw new Error(`Unsupported ${key}.`);
   if (!Array.isArray(candidate.rules) || candidate.rules.length > 20) throw new Error('Expected up to 20 eligibility criteria.');
   if(!['FIRST','LAST'].includes(candidate.indexOrder))throw new Error('Choose first or last matching index event.');
   if(candidate.logic!==null){const issues=logicIssues(candidate.logic,candidate.rules.length,true);if(issues.length)throw new Error(issues[0]);}
@@ -58,18 +63,20 @@ export function readDefinition(candidate) {
     }
   }
   for (const [i, r] of [candidate.index,...candidate.rules].entries()) {
-    if (!r || !Object.hasOwn(DOMAINS,r.domain) || typeof r.codes !== 'string' || r.codes.length > 20000) throw new Error('Invalid event definition.');
-    if (!Array.isArray(r.sources) || r.sources.some(t=>!DOMAINS[r.domain].includes(t)) || new Set(r.sources).size !== r.sources.length) throw new Error('Invalid claim sources.');
+    if (!r || !Object.hasOwn(domains,r.domain) || typeof r.codes !== 'string' || r.codes.length > 20000) throw new Error('Invalid event definition.');
+    if (!Array.isArray(r.sources) || r.sources.some(t=>!domains[r.domain].includes(t)) || new Set(r.sources).size !== r.sources.length) throw new Error('Invalid claim sources.');
+    if (cdm.isCdm(candidate) && (!Array.isArray(r.encTypes) || r.encTypes.some(t=>!Object.hasOwn(cdm.ENC_TYPES,t)) || new Set(r.encTypes).size!==r.encTypes.length)) throw new Error('Invalid encounter types.');
     if (i && (!['INCLUDE','EXCLUDE'].includes(r.mode) || ['from','to','minDays'].some(k=>r[k] !== null && !Number.isFinite(r[k])))) throw new Error('Invalid eligibility rule.');
   }
-  if (!Array.isArray(candidate.outputs) || candidate.outputs.some(t=>!TABLES.includes(t)) || new Set(candidate.outputs).size !== candidate.outputs.length) throw new Error('Invalid output tables.');
-  if (!candidate.mapping || TABLES.some(t=>typeof candidate.mapping[t] !== 'string' || candidate.mapping[t].length > 1000)) throw new Error('Invalid table mappings.');
+  if (!Array.isArray(candidate.outputs) || candidate.outputs.some(t=>!tables.includes(t)) || new Set(candidate.outputs).size !== candidate.outputs.length) throw new Error('Invalid output tables.');
+  if (!candidate.mapping || tables.some(t=>typeof candidate.mapping[t] !== 'string' || candidate.mapping[t].length > 1000)) throw new Error('Invalid table mappings.');
   // Retain only supported fields. Unknown JSON properties cannot alter the UI.
   const result = Object.fromEntries(Object.keys(base).map(k=>[k,candidate[k]]));
   return structuredClone(result);
 }
 export function validateDefinition(d) {
   try { readDefinition(d); } catch (error) { return [error.message]; }
+  if (cdm.isCdm(d)) return cdm.validate(d,parseCodes);
   const errors = [];
   errors.push(...logicIssues(treeFor(d),d.rules.length));
   if (d.schemaId !== schemaId) errors.push('This builder supports the 2023 Commercial and Medicare schema.');
@@ -108,6 +115,7 @@ export function validateDefinition(d) {
   return errors;
 }
 export function requiredTables(d) {
+  if (cdm.isCdm(d)) return cdm.requiredTables(d);
   return TABLES.filter(t => [d.index, ...d.rules].some(r => r.sources.includes(t)) || d.outputs.includes(t) || (t === 'T' && d.enrollment));
 }
 export function connectionIssues(d) {
@@ -117,6 +125,7 @@ const quote = text => `'${String(text).replace(/'/g, "''")}'`;
 export function compileSas(d, engine) {
   const errors = validateDefinition(d);
   if (errors.length) throw new Error(errors.join('\n'));
+  if (cdm.isCdm(d)) return cdm.compile(d,engine,parseCodes);
   if (!engine.includes('%macro roger_cut;')) throw new Error('The SAS engine could not be loaded.');
   const rules = [{ ...d.index, mode: 'INDEX', minDays: 1, from: 0, to: 0 }, ...d.rules];
   const ruleLines = rules.map((r, i) => `${i + 1}|${r.mode}|${r.domain}|${r.sources.join(' ')}|${r.minDays}|${r.from}|${r.to}`).join('\n');

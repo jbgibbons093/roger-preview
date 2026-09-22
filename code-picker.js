@@ -56,13 +56,13 @@ export async function openCodePicker({domain, codes, label, onApply}) {
   const dialog = document.createElement('dialog');
   dialog.className = 'code-picker';
   dialog.setAttribute('aria-labelledby', 'picker-title');
-  dialog.innerHTML = `<div class="picker-head"><div><p class="eyebrow">CODE LIBRARY · 2023</p><h2 id="picker-title">${esc(label)}</h2><p>Search by code or description, then choose the codes for this event.</p></div><button class="picker-close" aria-label="Close code library" data-picker="cancel">×</button></div>
+  dialog.innerHTML = `<div class="picker-head"><div><p class="eyebrow">CODE LIBRARY · ${bundled.has(domain)?'2023 REFERENCE':'LOCAL CATALOG'}</p><h2 id="picker-title">${esc(label)}</h2><p>Search by code or description, then choose the codes for this event. ${bundled.has(domain)?'These reference descriptions cover 2023. Verify code validity for the event years.':'Load a catalog for the intended coding years.'}</p></div><button class="picker-close" aria-label="Close code library" data-picker="cancel">×</button></div>
     <div class="picker-controls"><div><label for="picker-search">Search codes or descriptions</label><input id="picker-search" type="search" placeholder="Type a code, condition, or procedure" autocomplete="off"></div><div><label for="picker-group">Browse a group</label><select id="picker-group"><option value="">All groups</option></select></div></div>
     <div class="picker-tools"><label class="check-row"><input id="picker-selected" type="checkbox">Show selected only</label><span id="picker-total" role="status">Loading catalog…</span></div>
     <p id="picker-error" class="picker-error" role="alert" hidden></p><div id="picker-results" class="picker-results" aria-label="Code results"></div>
     <div class="picker-pagination"><button class="button small" data-picker="prev">Previous</button><span id="picker-page"></span><button class="button small" data-picker="next">Next</button><button class="button small" data-picker="select-page">Select this page</button></div>
     <details class="picker-reference"><summary>Catalog details and sources</summary><p id="picker-note"></p><div id="picker-sources"></div></details>
-    ${bundled.has(domain) ? '' : '<div class="picker-import"><label for="picker-file">Load your code catalog</label><input id="picker-file" type="file" accept=".csv,.json"><p class="hint">CSV with code,description headers, or a JSON array of code and description objects. The file stays in this browser session.</p></div>'}
+    ${'<div class="picker-import"><label for="picker-file">Load your code catalog</label><input id="picker-file" type="file" accept=".csv,.json"><p class="hint">CSV with code,description headers, or a JSON array of code and description objects. The file stays in this browser session.</p></div>'}
     <div class="picker-footer"><div><strong id="picker-count"></strong><button class="button subtle small" data-picker="clear">Clear selection</button></div><div><button class="button" data-picker="cancel">Cancel</button><button class="button primary" data-picker="apply">Apply codes</button></div></div>`;
   document.body.append(dialog);
   let catalog, page = 0, filtered = [], timer;
@@ -88,6 +88,7 @@ export async function openCodePicker({domain, codes, label, onApply}) {
     count();
   }
   function useCatalog(value) {
+    dialog.querySelector('.picker-head .eyebrow').textContent=value.periods.length?'CODE LIBRARY · 2023 REFERENCE':'CODE LIBRARY · LOCAL CATALOG';
     catalog = value;
     catalog.byCode ||= new Map(catalog.rows.map(row=>[row[0],row]));
     $('#picker-group').innerHTML = '<option value="">All groups</option>' + catalog.groups.map(group=>`<option value="${esc(group)}">${esc(domain === 'DRG' ? group : group + ' codes')}</option>`).join('');

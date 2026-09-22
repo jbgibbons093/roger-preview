@@ -12,3 +12,5 @@
 @media(max-width:1100px){.tree-layout{grid-template-columns:minmax(0,1fr) 220px}.tree-canvas-tools>.hint{display:none}.tree-inspector{padding:18px 12px}}@media(max-width:750px){.tree-layout{grid-template-columns:1fr}.tree-inspector{border-left:0;border-top:1px solid var(--line);max-height:400px}.tree-viewport{height:470px}.tree-toolbar{padding:15px}.tree-actions{gap:5px}.tree-actions .button{font-size:11px}}
 
 .tree-workspace.expanded{position:fixed;inset:16px;z-index:20;background:white;overflow:auto;box-shadow:0 10px 90px #14223866}.tree-workspace.expanded .tree-viewport{height:calc(100dvh - 275px)}.tree-workspace.expanded .tree-inspector{max-height:calc(100dvh - 220px)}
+
+.top-actions #data-profile{width:200px;flex-shrink:0}.profile-label{margin:0;white-space:nowrap}.top-actions{flex-wrap:wrap}.topbar{min-height:76px;height:auto;padding-top:12px;padding-bottom:12px}@media(max-width:720px){.top-actions #data-profile{width:100%}.profile-label{display:none}}
