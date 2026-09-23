@@ -1,4 +1,5 @@
-import { treeFor, logicText, logicIssues, usesOr } from './logic.js?v=a55109c8b4fb';
+import { treeFor, logicText, logicIssues, usesOr } from './logic.js?v=d8068fd47f0c';
+import { parseRunFolder } from './paths.js?v=d8068fd47f0c';
 
 export const schemaId = 'mini-sentinel-cdm-3.0-v1';
 export const TABLES = ['DEM','DEA','ENR','ENC','DIA','PRO','DIS'];
@@ -214,18 +215,17 @@ export function compileConnect(d,engine,parseCodes,settings){
   if(!Number.isInteger(port)||port<1||port>65535)throw new Error('Enter a valid SAS/CONNECT port.');
   if(!/^[A-Za-z]:\\[^\r\n;]*\.scr$/i.test(script))throw new Error('Enter the local SAS link script path.');
   const output=d.outputPath.trim();
-  const outputMatch=output.match(/^\/storage\/storage1\/PHShome\/jg093\/([A-Za-z][A-Za-z0-9_-]{0,63})$/);
-  if(output&&!outputMatch)throw new Error('For this institutional connection, choose a fresh one-level directory under /storage/storage1/PHShome/jg093.');
+  const outputRun=output?parseRunFolder(output):null;
   const body=compile(d,engine,parseCodes);
-  const createOutput=outputMatch?`data _null_;
+  const createOutput=outputRun?`data _null_;
   length folder $1024;
   if fileexist(${q(output)}) then do;
     put 'ERROR: ROGER output directory already exists. Choose a fresh run name.';
     abort cancel;
   end;
-  folder=dcreate(${q(outputMatch[1])},'/storage/storage1/PHShome/jg093');
+  folder=dcreate(${q(outputRun.name)},${q(outputRun.home)});
   if missing(folder) then do;
-    put 'ERROR: Could not create the ROGER output directory in the authorized home.';
+    put 'ERROR: Could not create the ROGER output directory in the configured home.';
     abort cancel;
   end;
 run;
@@ -245,7 +245,7 @@ signoff mynode.sasspawn nocscript;
 
 export function compileResultsExport(d,settings){
   const output=String(d.outputPath||'').trim();
-  if(!/^\/storage\/storage1\/PHShome\/jg093\/[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(output))throw new Error('Choose the completed one-level run folder under jg093.');
+  parseRunFolder(output);
   const host=String(settings.host||'').trim(),port=Number(settings.port),script=String(settings.script||'').trim();
   if(!/^(?=.{1,253}$)[A-Za-z0-9]+(?:[.-][A-Za-z0-9]+)*$/.test(host)||!Number.isInteger(port)||port<1||port>65535||!(/^[A-Za-z]:\\[^\r\n;]*\.scr$/i.test(script)))throw new Error('Complete the local SAS/CONNECT settings.');
   const folder=String(settings.resultsFolder||'').trim().replace(/[\\/]+$/,'');
@@ -260,7 +260,7 @@ export function compileResultsExport(d,settings){
 
 export function compilePrintPreview(d,settings){
   const output=String(d.outputPath||'').trim();
-  if(!/^\/storage\/storage1\/PHShome\/jg093\/[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(output))throw new Error('Choose the completed one-level run folder under jg093.');
+  parseRunFolder(output);
   const host=String(settings.host||'').trim(),port=Number(settings.port),script=String(settings.script||'').trim();
   if(!/^(?=.{1,253}$)[A-Za-z0-9]+(?:[.-][A-Za-z0-9]+)*$/.test(host)||!Number.isInteger(port)||port<1||port>65535||!(/^[A-Za-z]:\\[^\r\n;]*\.scr$/i.test(script)))throw new Error('Complete the local SAS/CONNECT settings.');
   const quote=s=>`'${s.replaceAll("'","''")}'`;

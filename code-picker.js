@@ -1,4 +1,4 @@
-import { parseCodes } from './cohort.js?v=a55109c8b4fb';
+import { parseCodes } from './cohort.js?v=d8068fd47f0c';
 
 const PAGE_SIZE = 50;
 const MAX_CODES = 500;
@@ -133,7 +133,7 @@ export async function openCodePicker({domain, codes, label, onApply}) {
   try {
     let value = catalogs.get(domain);
     if (!value && bundled.has(domain)) {
-      const response = await fetch(`./codes-${domain.toLowerCase()}.json?v=a55109c8b4fb`);
+      const response = await fetch(`./codes-${domain.toLowerCase()}.json?v=d8068fd47f0c`);
       if (!response.ok) throw new Error('Unable to load the code catalog. Close and reopen the library to retry.');
       value = await response.json(); catalogs.set(domain,value);
     }

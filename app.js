@@ -1,14 +1,22 @@
-import * as cdm from './cdm.js?v=a55109c8b4fb';
-import { freshDefinition, readDefinition, validateDefinition, connectionIssues, requiredTables, compileSas, parseCodes, TABLES as RAW_TABLES, DOMAINS as RAW_DOMAINS } from './cohort.js?v=a55109c8b4fb';
-import { openCodePicker } from './code-picker.js?v=a55109c8b4fb';
-import { treeFor, groupsIn, logicText, usesOr, removeCriterion } from './logic.js?v=a55109c8b4fb';
-import { renderTree, bindTree } from './cohort-tree.js?v=a55109c8b4fb';
-import { selectionProtocol } from './protocol.js?v=a55109c8b4fb';
-import { parseCsv, previewRows, quickCounts, missingness, compileQuickCount } from './results.js?v=a55109c8b4fb';
+import * as cdm from './cdm.js?v=d8068fd47f0c';
+import { freshDefinition, readDefinition, validateDefinition, connectionIssues, requiredTables, compileSas, parseCodes, TABLES as RAW_TABLES, DOMAINS as RAW_DOMAINS } from './cohort.js?v=d8068fd47f0c';
+import { openCodePicker } from './code-picker.js?v=d8068fd47f0c';
+import { treeFor, groupsIn, logicText, usesOr, removeCriterion } from './logic.js?v=d8068fd47f0c';
+import { renderTree, bindTree } from './cohort-tree.js?v=d8068fd47f0c';
+import { selectionProtocol } from './protocol.js?v=d8068fd47f0c';
+import { parseCsv, previewRows, quickCounts, missingness, compileQuickCount } from './results.js?v=d8068fd47f0c';
+import { parseRunFolder, parseOutputParent } from './paths.js?v=d8068fd47f0c';
+import { PROFILE_KEY, DEFAULT_LINK_SCRIPT, createProfile, readProfileStore, profileFromSettings } from './profiles.js?v=d8068fd47f0c';
+import { SAVED_COHORTS_KEY, readSavedCohorts, upsertSavedCohort } from './saved-cohorts.js?v=d8068fd47f0c';
 
-const DRAFT_KEY = 'roger.cohort.cdm.v1', LEGACY_DRAFT_KEY = 'roger.cohort.v1', CONNECT_KEY='roger.sasconnect.v1';
+const DRAFT_KEY = 'roger.cohort.cdm.v1', LEGACY_DRAFT_KEY = 'roger.cohort.v1', CONNECT_KEY='roger.sasconnect.v1', DESKTOP_KEY='roger.desktop.v1';
+const desktop=window.rogerDesktop||null;
 let definition = cdm.freshDefinition();
-let connectSettings={host:'',port:12600,script:'C:\\Program Files\\SASHome\\SASFoundation\\9.4\\connect\\saslink\\tcpunix.scr',resultsFolder:'',includeCohort:false};
+let connectSettings={host:'',port:12600,script:DEFAULT_LINK_SCRIPT,resultsFolder:'',includeCohort:false};
+let desktopSettings={sasExecutable:'',serverUser:'',outputParent:''},desktopJob=null,desktopSourcePath='',connectionCheck=null;
+let profiles=[],activeProfileId='';
+let savedCohorts=[],selectedSavedCohortId='',selectedRunCohortId='',selectedRunProfileId='',sasPathCheck=null,cohortDirty=false;
+let desktopDefaultHost='';
 let TABLES=cdm.TABLES, DOMAINS=cdm.DOMAINS;
 let rawCatalog, rawEngine, cdmEngine;
 const activeCdm=()=>cdm.isCdm(definition);
@@ -16,7 +24,7 @@ const populationLabel=()=>activeCdm()?`Mini-Sentinel CDM · ${definition.yearSta
 const ageLabel=()=>activeCdm()?'Age at index':'Reported age';
 function activate(){ TABLES=activeCdm()?cdm.TABLES:RAW_TABLES; DOMAINS=activeCdm()?cdm.DOMAINS:RAW_DOMAINS; catalog=activeCdm()?cdm.catalog:rawCatalog; engine=activeCdm()?cdmEngine:rawEngine; }
 let view = 'graph';
-let catalog, engine, toastTimer;
+let catalog, engine, toastTimer, runRefreshTimer;
 const resultTables=new Map();
 let selectedResult='', resultState={search:'',sortColumn:'',descending:false,page:1,visible:null,countColumn:'',splitColumn:''};
 const app = document.querySelector('#app');
@@ -26,7 +34,7 @@ const option = (value, label, current) => `<option value="${esc(value)}" ${value
 const field = (label, key, value, type = 'text', extra = '') => `<div><label for="${key}">${label}</label><input id="${key}" data-field="${key}" type="${type}" value="${esc(value)}" ${extra}></div>`;
 const number = (label, key, value, min = 0, max = activeCdm()?3650:365) => field(label, key, value, 'number', `min="${min}" max="${max}" step="1"`);
 function toast(message) { const el = document.querySelector('#toast'); el.textContent = message; el.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => el.hidden = true, 4500); }
-function changed() { document.querySelector('#save-state').textContent = 'Unsaved changes'; }
+function changed() { document.querySelector('#save-state').textContent = 'Unsaved changes'; selectedRunCohortId='';cohortDirty=true;if(view==='saved')app.querySelectorAll('[data-action^="export-"]').forEach(button=>button.disabled=true); }
 function panel(n, title, subtitle, content) { return `<section class="panel"><div class="panel-head"><span class="step-number">${n}</span><div><h2>${title}</h2><p>${subtitle}</p></div></div><div class="panel-body">${content}</div></section>`; }
 function setView(next) { view = next; render(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
 function ruleEditor(r, index) {
@@ -53,8 +61,8 @@ function summary() {
     <div class="rule-count">${definition.rules.length + 1}<small>event criteria in this definition</small></div><hr>
     <dl><dt>Index code list</dt><dd>${count === null ? 'Check codes' : `${count} ${count === 1 ? 'code' : 'codes'}`}</dd><dt>${ageLabel()}</dt><dd>${definition.ageMin}–${definition.ageMax}</dd><dt>Enrollment</dt><dd>${definition.enrollment ? 'Required' : 'Optional'}</dd>${activeCdm()?`<dt>Covariates</dt><dd>${definition.covariates.length}</dd>`:''}<dt>Claim extracts</dt><dd>${definition.outputs.length} tables</dd></dl>
     <hr><h3>Enrollment window</h3>${!definition.enrollment ? '<p class="hint">Enrollment is not required.</p>' : `<div class="timeline" role="img" aria-label="${definition.baseline} days before index and ${definition.followup} days after index"><div class="base"></div><div class="index"><span>INDEX</span></div><div class="follow"></div><div class="ends"><span>−${definition.baseline} days</span><span>+${definition.followup} days</span></div></div>`}
-    <div class="notice ${errors.length ? '' : 'info'}">${errors.length ? `<strong>Definition needs attention</strong><ul>${errors.slice(0, 3).map(e => `<li>${esc(e)}</li>`).join('')}</ul>${errors.length > 3 ? '<p>Review the definition for additional issues.</p>' : ''}` : '<strong>Definition ready to review</strong><br>Export the program to run in SAS.'}</div>
-    <hr><div class="status-row"><span class="status-dot"></span>Run the generated program in local SAS</div><p class="hint">SAS/CONNECT submits the cut to the institutional server. Cohort size and attrition appear in the SAS results.</p><button class="button primary full-button" data-action="review">Review &amp; export <span aria-hidden="true">→</span></button>
+    <div class="notice ${errors.length ? '' : 'info'}">${errors.length ? `<strong>Definition needs attention</strong><ul>${errors.slice(0, 3).map(e => `<li>${esc(e)}</li>`).join('')}</ul>${errors.length > 3 ? '<p>Review the definition for additional issues.</p>' : ''}` : '<strong>Definition ready to save</strong><br>Save it, then review the protocol and SAS program in Saved cohorts.'}</div>
+    <hr><div class="status-row"><span class="status-dot"></span>Save this definition</div><p class="hint">Saved cohorts appear in your library. Open one there to view its tree, protocol, and SAS program.</p><button class="button primary full-button" data-action="save-cohort">Save cohort <span aria-hidden="true">→</span></button>
   </div></aside>`;
 }
 function mappingPanel() {
@@ -91,7 +99,7 @@ function workflowPanel(){
 }
 function connectionPanel(){
   if(!activeCdm())return '';
-  return panel('08','Local SAS/CONNECT','The generated runner starts in local SAS and submits the CDM work to the server.',`<div class="fields"><div><label for="connect-host">Server hostname</label><input id="connect-host" data-connect="host" value="${esc(connectSettings.host)}" autocomplete="off" placeholder="Enter your reachable SAS server"></div><div><label for="connect-port">Port</label><input id="connect-port" data-connect="port" type="number" min="1" max="65535" value="${esc(connectSettings.port)}"></div><div class="full"><label for="connect-script">Local SAS link script</label><input id="connect-script" data-connect="script" value="${esc(connectSettings.script)}" spellcheck="false"></div><div class="full"><label for="connect-results-folder">Existing local folder for results CSVs</label><input id="connect-results-folder" data-connect="resultsFolder" value="${esc(connectSettings.resultsFolder)}" spellcheck="false" placeholder="C:\\Users\\...\\private-results"></div><label class="check-row full"><input type="checkbox" data-connect="includeCohort" ${connectSettings.includeCohort?'checked':''}>Also export the complete row-level COHORT CSV to that local folder</label></div><p class="hint">Connection settings stay on this device and are omitted from cohort JSON. The SAS sign-on script requests your credentials locally. For persistent results, enter a new one-level output directory under /storage/storage1/PHShome/jg093 in the mappings panel. The runner creates that directory. The separate results exporter reads that completed folder and writes CSVs only into your chosen local folder.</p>`);
+  return panel('08','Local SAS/CONNECT','The generated runner starts in local SAS and submits the CDM work to the server.',`<div class="fields"><div><label for="connect-host">Server hostname</label><input id="connect-host" data-connect="host" value="${esc(connectSettings.host)}" autocomplete="off" placeholder="Enter your reachable SAS server"></div><div><label for="connect-port">Port</label><input id="connect-port" data-connect="port" type="number" min="1" max="65535" value="${esc(connectSettings.port)}"></div><div class="full"><label for="connect-script">Local SAS link script</label><input id="connect-script" data-connect="script" value="${esc(connectSettings.script)}" spellcheck="false"></div><div class="full"><label for="connect-results-folder">Existing local folder for results CSVs</label><input id="connect-results-folder" data-connect="resultsFolder" value="${esc(connectSettings.resultsFolder)}" spellcheck="false" placeholder="C:\\Users\\...\\private-results"></div><label class="check-row full"><input type="checkbox" data-connect="includeCohort" ${connectSettings.includeCohort?'checked':''}>Also export the complete row-level COHORT CSV to that local folder</label></div><p class="hint">Connection settings stay on this device and are omitted from cohort JSON. The SAS sign-on script requests your credentials locally. For persistent results, enter a new one-level output directory under your approved /storage/storage1/PHShome/&lt;username&gt; home in the mappings panel. The runner creates that directory. The separate results exporter reads that completed folder and writes CSVs only into your chosen local folder.</p>`);
 }
 function builder() {
   return `<div class="builder-grid"><div class="stack">
@@ -103,7 +111,8 @@ function builder() {
     ${panel('06', 'Data cut', 'Keep one cohort row per person and select the related records to extract.', `<div class="fields">${TABLES.map(t=>`<label class="output-item ${definition.outputs.includes(t)?'selected':''}"><input type="checkbox" data-output="${t}" ${definition.outputs.includes(t)?'checked':''}><span class="table-code">${t}</span><span>${catalog.tables[t].label}<small>${activeCdm()?catalog.tables[t].extract:t==='T'?'Intervals overlapping the cut window':t==='I'?'Selected by admission date':'Selected by service date'}</small></span></label>`).join('')}</div><div class="fields" style="margin-top:21px">${number('Extract days before index','extractBefore',definition.extractBefore)}${number('Extract days after index','extractAfter',definition.extractAfter)}</div><p class="hint">At final delivery, the cohort, attrition table, and definition are included. Claim extracts preserve the original fields and add the index date. Enrollment records preserve their original endpoints. ${activeCdm()?'Annual extracts remain in separate files. Demographic and Death extracts include all records for selected people. Death dates do not change enrollment.':''}</p>`)}
     ${mappingPanel()}
     ${workflowPanel()}
-    ${connectionPanel()}
+    ${desktop?'':connectionPanel()}
+    ${panel('09','Save cohort','Add this definition to the saved cohort library.',`<button class="button primary" data-action="save-cohort">Save cohort</button><p class="hint">Open Saved cohorts to review the condition tree, study population protocol, and downloadable SAS code.</p>`)}
   </div><div id="summary-container">${summary()}</div></div>`;
 }
 function review() {
@@ -116,11 +125,104 @@ function review() {
     <details class="panel"><summary class="details-toggle">Study population selection protocol</summary><pre class="protocol-preview">${esc(selectionProtocol(definition,catalog))}</pre></details>
     <section class="panel"><div class="panel-head"><div><h2>Generated SAS program</h2><p>The full extraction logic is included in the download.</p></div></div><pre class="code-preview" tabindex="0" aria-label="Generated SAS program">${esc(code)}</pre></section>
     <section class="panel"><div class="panel-head"><div><h2>Cohort attrition</h2><p>Counts will be produced by SAS after execution.</p></div></div><table><thead><tr><th>Selection step</th><th>People remaining</th></tr></thead><tbody><tr><td>${definition.indexOrder==='LAST'?'Last':'First'} matching index event</td><td>Awaiting SAS run</td></tr><tr><td>Demographic requirements</td><td>Awaiting SAS run</td></tr>${definition.enrollment?'<tr><td>Enrollment requirements</td><td>Awaiting SAS run</td></tr>':''}${usesOr(treeFor(definition))?'<tr><td>Combined AND/OR condition tree</td><td>Awaiting SAS run</td></tr>':definition.rules.map((r,i)=>`<tr><td>Criterion ${i+1} · ${r.mode==='INCLUDE'?'Inclusion':'Exclusion'}</td><td>Awaiting SAS run</td></tr>`).join('')}</tbody></table><div class="panel-body"><p class="hint">Final delivery also writes covariate prevalence, index-month and age-band counts, missingness, extract counts, and a 200-row cohort preview. Open the completed CSVs in Diagnostics.</p><button class="button small" data-action="diagnostics">Open diagnostics</button></div></section>
-  </div><aside class="summary panel"><div class="summary-head"><p class="eyebrow">EXPORT PACKAGE</p><h2>Ready for your SAS workspace.</h2></div><div class="summary-body"><p class="review-summary-text" style="font-size:14px">A self-contained SAS 9.4 program with the cohort rules, code lists, selection steps, and requested extracts.</p>${mappingIssues.length?`<div class="notice mapping-notice"><strong>${mappingIssues.length} table mappings remain</strong><br>${activeCdm()?'Fill in the mappings in the builder and regenerate the program.':'You can download now and fill in the mappings in the program.'} SAS stops until mappings are supplied.</div>`:'<div class="notice info mapping-notice">Table names are configured. Confirm their delivery and year range before running.</div>'}<button class="button primary full-button" data-action="export-sas" ${errors.length?'disabled':''}>Download SAS program ↓</button><button class="button full-button" data-action="export-json">Download definition</button><button class="button full-button" data-action="export-protocol">Download selection protocol</button><button class="button subtle full-button" data-action="builder">Back to definition</button><hr><p class="export-meta">The SAS 9.4 synthetic check and institutional schema preflight passed. Review each definition-specific run and its diagnostics.</p><p class="hint">For a first check, ${activeCdm()?'<a href="./synthetic_cdm_fixture.sas?v=a55109c8b4fb" download>download the CDM SAS check</a>':'<a href="./synthetic_fixture.sas?v=a55109c8b4fb" download>download the synthetic SAS check</a> and the <a href="./synthetic_tree_fixture.sas?v=a55109c8b4fb" download>nested tree check</a>'}. Run each in a separate fresh SAS session before using research data.</p></div></aside></div>`;
+  </div><aside class="summary panel"><div class="summary-head"><p class="eyebrow">EXPORT PACKAGE</p><h2>Ready for your SAS workspace.</h2></div><div class="summary-body"><p class="review-summary-text" style="font-size:14px">A self-contained SAS 9.4 program with the cohort rules, code lists, selection steps, and requested extracts.</p>${mappingIssues.length?`<div class="notice mapping-notice"><strong>${mappingIssues.length} table mappings remain</strong><br>${activeCdm()?'Fill in the mappings in the builder and regenerate the program.':'You can download now and fill in the mappings in the program.'} SAS stops until mappings are supplied.</div>`:'<div class="notice info mapping-notice">Table names are configured. Confirm their delivery and year range before running.</div>'}<button class="button primary full-button" data-action="export-sas" ${errors.length?'disabled':''}>Download SAS program ↓</button><button class="button full-button" data-action="export-json">Download definition</button><button class="button full-button" data-action="export-protocol">Download selection protocol</button><button class="button subtle full-button" data-action="builder">Back to definition</button><hr><p class="export-meta">The SAS 9.4 synthetic check and institutional schema preflight passed. Review each definition-specific run and its diagnostics.</p><p class="hint">For a first check, ${activeCdm()?'<a href="./synthetic_cdm_fixture.sas?v=d8068fd47f0c" download>download the CDM SAS check</a>':'<a href="./synthetic_fixture.sas?v=d8068fd47f0c" download>download the synthetic SAS check</a> and the <a href="./synthetic_tree_fixture.sas?v=d8068fd47f0c" download>nested tree check</a>'}. Run each in a separate fresh SAS session before using research data.</p></div></aside></div>`;
 }
 function codebook() {
   if(activeCdm())return cdmCodebook();
   return `<div class="stack">${panel('2023','Commercial & Medicare data dictionary','Version 1.0 · Verified against the vendor’s 2023 dictionary and user guide.',`<p class="review-summary-text">This release uses a single, explicit schema for 2023. Additional codebooks can be added as separate year profiles without changing saved definitions.</p><div class="toolbar"><a class="button" href="${catalog.dictionaryUrl}" target="_blank" rel="noreferrer">Open data dictionary ↗</a><a class="button" href="${catalog.guideUrl}" target="_blank" rel="noreferrer">Open user guide ↗</a></div>`)}<section class="panel"><div class="panel-head"><div><h2>Tables behind the cohort builder</h2><p>Table letters are source definitions. Your SAS dataset names are configured separately.</p></div></div><div class="table-wrap"><table><thead><tr><th>Table</th><th>Records</th><th>Date used</th><th>Diagnosis fields searched</th><th>Dictionary</th></tr></thead><tbody>${TABLES.map(t=>`<tr><td><code>${t}</code></td><td>${catalog.tables[t].label}</td><td><code>${catalog.tables[t].date}${t==='T'?' / DTEND':''}</code></td><td><code>${catalog.tables[t].diagnoses?.join(', ')||'Not used for diagnoses'}</code></td><td><a href="${catalog.dictionaryUrl}#page=${catalog.tables[t].page}" target="_blank" rel="noreferrer">Page ${catalog.tables[t].page}</a></td></tr>`).join('')}</tbody></table></div></section>${panel('i','Interpretation notes','Source-specific details that affect cohort definitions.',catalog.notes.map(n=>`<div class="catalog-note"><h3>${n.title}</h3><p>${n.text}</p><a href="${n.source==='dictionary'?catalog.dictionaryUrl:catalog.guideUrl}#page=${n.page}" target="_blank" rel="noreferrer">${n.source==='dictionary'?'Dictionary':'User guide'} · PDF page ${n.page} ↗</a></div>`).join(''))}</div>`;
+}
+function activeProfile(){return profiles.find(profile=>profile.id===activeProfileId);}
+function persistProfiles(){
+  const current=activeProfile();
+  if(current){
+    const next=profileFromSettings(current,desktopSettings,connectSettings);
+    profiles[profiles.findIndex(profile=>profile.id===activeProfileId)]=next;
+  }
+  localStorage.setItem(PROFILE_KEY,JSON.stringify({profiles,activeId:activeProfileId}));
+}
+function useProfile(profile){
+  activeProfileId=profile.id;
+  desktopSettings={sasExecutable:profile.sasExecutable,serverUser:profile.serverUser,outputParent:profile.outputParent};
+  connectSettings={host:profile.host,port:profile.port,script:profile.script,resultsFolder:profile.resultsFolder,includeCohort:profile.includeCohort};
+  connectionCheck=null;
+  sasPathCheck=null;
+}
+function freshRunPath(){
+  const parent=parseOutputParent(desktopSettings.outputParent,desktopSettings.serverUser);
+  const stamp=new Date().toISOString().replace(/[-:]/g,'').replace('T','_').replace('.','_').replace('Z','');
+  definition.outputPath=`${parent}/roger_${stamp}_${crypto.randomUUID().slice(0,4)}`;
+  if(!definition.inputPath)definition.inputPath=desktopSourcePath;
+}
+function saveCohort(){
+  try{
+    if(!definition.name.trim())throw new Error('Name the cohort before saving.');
+    const result=upsertSavedCohort(savedCohorts,selectedSavedCohortId,definition);
+    localStorage.setItem(SAVED_COHORTS_KEY,JSON.stringify(result.items));
+    savedCohorts=result.items;selectedSavedCohortId=result.cohort.id;
+    localStorage.setItem(activeCdm()?DRAFT_KEY:LEGACY_DRAFT_KEY,JSON.stringify(definition));
+    cohortDirty=false;document.querySelector('#save-state').textContent='Saved on this device';
+    setView('saved');toast('Cohort saved to your library.');
+  }catch(error){toast(`Cohort could not be saved. ${error.message}`);}
+}
+function selectSavedCohort(id){
+  const item=savedCohorts.find(entry=>entry.id===id);
+  if(!item)throw new Error('That saved cohort is unavailable.');
+  selectedSavedCohortId=id;definition=readDefinition(item.definition);if(desktop&&activeCdm())definition.inputPath=desktopSourcePath;selectedRunCohortId='';
+  cohortDirty=false;document.querySelector('#save-state').textContent='Saved on this device';render();
+}
+async function checkDesktopConnection(){
+  try{
+    connectionCheck={ok:null,message:'Checking the SAS/CONNECT host and port…'};render();
+    connectionCheck=await desktop.checkConnection({host:connectSettings.host,port:connectSettings.port});
+    render();
+  }catch(error){connectionCheck={ok:false,message:error.message};render();}
+}
+function profileIssues(){
+  const issues=[];
+  if(!desktopSettings.sasExecutable)issues.push('Select your local SAS 9.4 sas.exe.');
+  else if(!sasPathCheck?.ok)issues.push(sasPathCheck?.message||'Validate the local SAS executable.');
+  if(!/^[A-Za-z][A-Za-z0-9_-]{0,31}$/.test(desktopSettings.serverUser))issues.push('Enter your own server username.');
+  try{parseOutputParent(desktopSettings.outputParent,desktopSettings.serverUser);}catch(error){issues.push(error.message);}
+  if(!connectSettings.host)issues.push('Enter the institutional SAS/CONNECT hostname.');
+  if(!Number.isInteger(Number(connectSettings.port))||Number(connectSettings.port)<1||Number(connectSettings.port)>65535)issues.push('Enter the SAS/CONNECT port.');
+  if(!/^[A-Za-z]:\\[^\r\n;]*\.scr$/i.test(connectSettings.script))issues.push('Select a local SAS link script ending in .scr.');
+  return issues;
+}
+async function validateSasPath(){
+  if(!desktop)return;
+  const candidate=desktopSettings.sasExecutable;
+  sasPathCheck={ok:null,message:'Checking SAS executable…'};
+  if(view==='profile')render();
+  try{const result=await desktop.validateSas(candidate);if(candidate===desktopSettings.sasExecutable)sasPathCheck=result;}
+  catch(error){if(candidate===desktopSettings.sasExecutable)sasPathCheck={ok:false,message:error.message};}
+  if(view==='profile'||view==='run')render();
+}
+function profileWorkspace(){
+  if(!desktop)return panel('i','Desktop app required','Profiles are available in the installed ROGER app.','<p>The browser preview can save cohorts and download SAS programs.</p>');
+  const profile=activeProfile(),busy=desktopJob?.status==='running';
+  const guide=`<details class="setup-guide" ${profileIssues().length?'open':''}><summary>New here? Set up your investigator profile</summary><ol><li>Install SAS 9.4 with SAS/CONNECT and connect to your institution’s VPN.</li><li>Choose your local <code>sas.exe</code>, then enter your own server username and SAS/CONNECT host, port, and link script.</li><li>Set an existing output parent under your own server home and choose an existing protected Windows results folder.</li><li>Save your profile, check the VPN/server connection, and run the local synthetic SAS check.</li><li>Build and save a cohort. On Run in SAS, deliberately select this profile and a saved cohort.</li></ol><p class="hint">SAS prompts for credentials at sign-on; ROGER does not save passwords. A reachable port does not confirm account authorization.</p></details>`;
+  const picker=panel('01','Investigator profiles','Each profile stores this computer’s SAS and connection settings.',`<div class="fields"><div><label for="profile-select">Profile to edit</label><select id="profile-select" data-profile-select>${profiles.map(item=>option(item.id,item.name,activeProfileId)).join('')}</select></div><div><label for="profile-name">Profile name</label><input id="profile-name" data-profile-name value="${esc(profile?.name||'')}" maxlength="60"></div></div><div class="run-actions"><button class="button" data-action="add-profile">Create profile</button><button class="button" data-action="save-profile">Save profile</button><button class="button subtle" data-action="delete-profile" ${profiles.length<2?'disabled':''}>Delete profile</button></div><p class="hint">Profiles are local to this Windows account. Each team member should use their own server account and approved output home.</p>`);
+  const setup=panel('02','SAS and server connection','Locate the local SAS executable and enter the details for SAS/CONNECT.',`<div class="fields"><div class="full"><label for="desktop-sas">Local SAS 9.4 executable</label><div class="desktop-path"><input id="desktop-sas" data-desktop="sasExecutable" value="${esc(desktopSettings.sasExecutable)}" spellcheck="false" placeholder="C:\\Program Files\\SASHome\\SASFoundation\\9.4\\sas.exe"><button class="button" data-action="choose-sas">Browse</button><button class="button" data-action="validate-sas">Check path</button></div><p class="hint" id="sas-path-status" role="status">${esc(sasPathCheck?.message||'Browse to sas.exe, then check the path.')}</p></div><div><label for="desktop-user">Your server username</label><input id="desktop-user" data-desktop="serverUser" value="${esc(desktopSettings.serverUser)}" placeholder="Your institutional ID" autocomplete="username"></div><div><label for="run-host">SAS/CONNECT hostname</label><input id="run-host" data-connect="host" value="${esc(connectSettings.host)}"></div><div><label for="run-port">SAS/CONNECT port</label><input id="run-port" data-connect="port" type="number" min="1" max="65535" value="${esc(connectSettings.port)}"></div><div class="full"><label for="run-script">Local SAS link script (.scr)</label><input id="run-script" data-connect="script" value="${esc(connectSettings.script)}" spellcheck="false"></div><div class="full"><label for="run-parent">Server output parent (existing directory)</label><input id="run-parent" data-desktop="outputParent" value="${esc(desktopSettings.outputParent)}" spellcheck="false" placeholder="/storage/storage1/PHShome/yourid"></div><div class="full"><label for="run-results">Existing protected Windows folder for result CSVs</label><div class="desktop-path"><input id="run-results" data-connect="resultsFolder" value="${esc(connectSettings.resultsFolder)}" spellcheck="false"><button class="button" data-action="choose-results">Browse</button></div></div><label class="check-row full"><input type="checkbox" data-connect="includeCohort" ${connectSettings.includeCohort?'checked':''}>Also export the complete row-level COHORT CSV with identifiers</label></div><div class="run-actions"><button class="button" data-action="check-connection" ${busy?'disabled':''}>Check VPN / server connection</button><button class="button" data-action="run-synthetic" ${busy||!sasPathCheck?.ok?'disabled':''}>Run local synthetic SAS check</button></div>${connectionCheck?`<div class="notice ${connectionCheck.ok?'info':''}" role="status">${esc(connectionCheck.message)}</div>`:'<p class="hint">If the server cannot be reached, connect to the institutional VPN and retry. SAS requests your credentials when a server job starts.</p>'}<p class="hint">CDM source: <code>${esc(desktopSourcePath)}</code> (read-only). Persistent run folders are created only under each investigator’s own server home.</p>`);
+  return `<div class="stack">${guide}${picker}${setup}</div>`;
+}
+function runWorkspace(){
+  if(!desktop)return panel('i','Desktop app required','Install ROGER to run SAS.','<p>Saved cohorts in the browser can still provide a protocol and downloadable SAS program.</p>');
+  const profile=profiles.find(item=>item.id===selectedRunProfileId);
+  const cohort=savedCohorts.find(item=>item.id===selectedRunCohortId);
+  let runFolderReady=false,folderIssue='';
+  try{const folder=parseRunFolder(definition.outputPath);if(folder.user!==desktopSettings.serverUser)throw new Error('The run folder must be under the selected profile’s server username.');runFolderReady=true;}catch(error){folderIssue=error.message;}
+  const issues=[...(!profile?['Choose an investigator profile.']:profileIssues()),...(!cohort?['Choose a saved cohort.']:[]),...(cohort&&validateDefinition(definition).length?validateDefinition(definition):[]),...(activeCdm()&&definition.inputPath!==desktopSourcePath?['The CDM input must be the configured read-only institutional source.']:[]),...(!runFolderReady?[folderIssue]:[])];
+  const busy=desktopJob?.status==='running';
+  const select=panel('01','Choose what to run','Select a saved cohort and an investigator profile for this SAS job.',`<div class="fields"><div><label for="run-cohort-select">Saved cohort</label><select id="run-cohort-select" data-run-cohort-select>${option('','Choose a saved cohort',selectedRunCohortId)}${savedCohorts.map(item=>option(item.id,item.name,selectedRunCohortId)).join('')}</select></div><div><label for="run-profile-select">Investigator profile</label><select id="run-profile-select" data-run-profile-select>${option('','Choose an investigator profile',selectedRunProfileId)}${profiles.map(item=>option(item.id,item.name,selectedRunProfileId)).join('')}</select></div></div><p class="hint">The selected profile supplies your local SAS 9.4 executable, server account, SAS/CONNECT settings, and approved output parent. <button class="text-link" data-action="profile">Edit profiles</button></p>${cohort?`<div class="notice info">${esc(cohort.name)} · ${esc(logicText(treeFor(definition)))}</div>`:''}`);
+  const actions=panel('02','Run in SAS','ROGER launches local SAS, then SAS/CONNECT signs on to the server.',`<div class="fields"><div class="full"><label for="run-output">New server run folder</label><div class="desktop-path"><input id="run-output" data-field="outputPath" value="${esc(definition.outputPath)}" spellcheck="false" placeholder="Select profile and cohort, then choose New name"><button class="button" data-action="new-run-folder" ${!profile?'disabled':''}>New name</button></div><p class="hint">Each cohort cut uses a fresh child folder under your own approved server home. The CDM input folder is read-only.</p></div></div><div class="notice ${issues.length?'':'info'}">${issues.length?`<strong>Complete these choices before running</strong><ul>${issues.slice(0,8).map(issue=>`<li>${esc(issue)}</li>`).join('')}</ul>`:'<strong>Ready to run the saved cohort.</strong>'}</div><div class="run-actions"><button class="button primary" data-action="run-cohort" ${busy||issues.length?'disabled':''}>Run cohort cut in SAS</button><button class="button" data-action="run-results" ${busy||issues.length?'disabled':''}>Export completed results</button><button class="button" data-action="run-preview" ${busy||issues.length?'disabled':''}>Print 100-row preview</button><button class="button" data-action="load-desktop-results" ${busy||!profile||!connectSettings.resultsFolder?'disabled':''}>Load result CSVs</button></div><p class="hint">Result export and PROC PRINT read an already completed server run. Review job status and log below before opening Data preview or Diagnostics.</p>`);
+  const log=panel('03','SAS job and live log','Output appears here as the local SAS process writes it.',`<div class="job-state" id="job-state"><strong>${esc(desktopJob?.status||'No job started')}</strong>${desktopJob?` · ${esc(desktopJob.kind)} · ${esc(desktopJob.startedAt||'')}`:''}</div>${desktopJob?`<p class="hint">Local job folder: <code>${esc(desktopJob.folder||'')}</code></p><button class="button small" data-action="open-job-folder">Open job folder</button><pre class="job-log" tabindex="0">${esc(desktopJob.log||'Waiting for SAS output. If SAS opens a TYPE WINDOW sign-on prompt, enter your credentials there.')}</pre>`:'<p class="hint">Choose a saved cohort and a profile above. The SAS log will appear here while the job runs.</p>'}`);
+  return `<div class="stack">${select}${actions}${log}</div>`;
+}
+function savedWorkspace(){
+  const selected=savedCohorts.find(item=>item.id===selectedSavedCohortId);
+  const cards=panel('01','Saved cohort library','Open a cohort to visualize its criteria, review the protocol, and download its SAS program.',`<div class="run-actions"><button class="button" data-action="new-cohort">New cohort</button><button class="button primary" data-action="save-cohort">Save current cohort</button></div>${savedCohorts.length?`<div class="saved-list">${savedCohorts.map(item=>`<div class="saved-card ${selected?.id===item.id?'chosen':''}"><button data-saved-open="${esc(item.id)}"><strong>${esc(item.name)}</strong><span>${esc(item.definition.schemaId.includes('mini-sentinel')?'Mini-Sentinel CDM':'MarketScan 2023')} · ${item.definition.rules.length+1} event criteria · ${new Date(item.updatedAt).toLocaleString()}</span><small>${esc(logicText(treeFor(item.definition)))}</small></button><button class="button small subtle" data-saved-delete="${esc(item.id)}" aria-label="Delete ${esc(item.name)}">Delete</button></div>`).join('')}</div>`:'<div class="empty">No saved cohorts yet. Build a cohort and choose Save cohort.</div>'}`);
+  if(!selected)return `<div class="stack">${cards}</div>`;
+  return `<div class="stack">${cards}${panel('02',`Viewing ${esc(selected.name)}`,'The graphical tree and notes below come from this saved cohort.',`<div class="run-actions"><button class="button" data-action="edit-saved">Edit definition</button><button class="button" data-action="save-cohort">Save changes</button>${desktop?`<button class="button primary" data-action="run-saved" ${cohortDirty?'disabled':''}>Select for SAS run</button>`:''}</div>`)}${cohortDirty?'<div class="notice">The current edits are not saved. Save changes before reviewing or downloading this cohort.</div>':''}${renderTree(definition,catalog,!cohortDirty)}${cohortDirty?'':review()}</div>`;
 }
 function resultsToolbar(){
   return `<div class="results-toolbar"><div><h2>Completed SAS results</h2><p class="hint">Print the first 100 rows in local SAS Results, or run the results exporter and open its CSV files here. Imported files stay in this browser tab.</p></div><div class="results-actions">${activeCdm()?'<button class="button" data-action="export-print-preview">Download 100-row PROC PRINT</button><button class="button" data-action="export-results">Download SAS results exporter</button>':''}<button class="button primary" data-action="open-results">Open SAS CSV files</button></div></div>${resultTables.size?`<div class="results-file-list">${[...resultTables].map(([name,t])=>`<span class="result-chip"><strong>${esc(name)}</strong> · ${t.rows.length.toLocaleString()} rows <button type="button" data-result-remove="${esc(name)}" aria-label="Remove ${esc(name)}">×</button></span>`).join('')}</div>`:''}`;
@@ -141,27 +243,33 @@ function diagnostics(){
   const split=resultState.splitColumn&&table.columns.includes(resultState.splitColumn)&&resultState.splitColumn!==col?resultState.splitColumn:'';
   const counts=quickCounts(table,col,split,{search:resultState.search});
   const sasTables=['diagnostics','attrition','counts','missingness','extract_counts','covariate_specs'].filter(name=>resultTables.has(name));
-  return `<div class="stack">${resultsToolbar()}<section class="panel"><div class="panel-head"><div><h2>SAS run diagnostics</h2><p>These tables were calculated by SAS over the completed cut.</p></div></div><div class="panel-body">${sasTables.length?`<div class="diagnostic-cards">${sasTables.map(name=>`<button class="diagnostic-card" type="button" data-result-select="${name}"><strong>${name.replaceAll('_',' ').toUpperCase()}</strong><span>${resultTables.get(name).rows.length.toLocaleString()} rows · Open table →</span></button>`).join('')}</div>`:'<p class="hint">Open DIAGNOSTICS, ATTRITION, COUNTS, MISSINGNESS, and EXTRACT_COUNTS CSV files from SAS to show authoritative full-run results here.</p>'}${resultTables.has('diagnostics')?tableMarkup(resultTables.get('diagnostics').columns,resultTables.get('diagnostics').rows.slice(0,5)):''}${resultTables.has('attrition')?`<h3 class="diagnostic-subhead">Cohort attrition</h3>${tableMarkup(resultTables.get('attrition').columns,resultTables.get('attrition').rows.slice(0,30))}`:''}</div></section><section class="panel"><div class="panel-head"><div><h2>Quick counts</h2><p>Explore values in the imported CSV, then download a read-only SAS count for the entire completed dataset.</p></div></div><div class="panel-body"><div class="results-controls"><div><label for="count-table">Imported dataset</label><select id="count-table" data-result-table>${[...resultTables.keys()].map(name=>option(name,name.toUpperCase(),selectedResult)).join('')}</select></div><div><label for="count-column">Count by</label><select id="count-column" data-count-column>${table.columns.map(c=>option(c,c,col)).join('')}</select></div><div><label for="count-split">Optional split</label><select id="count-split" data-count-split><option value="">None</option>${table.columns.filter(c=>c!==col).map(c=>option(c,c,split)).join('')}</select></div><div><label for="count-search">Filter imported rows</label><input id="count-search" data-result-search value="${esc(resultState.search)}" placeholder="Type, then press Enter"></div><button class="button" data-action="apply-result-search">Apply filter</button><button class="button" data-action="export-quick-count">Download full-data SAS count</button></div><p class="hint">Local preview: ${counts.total.toLocaleString()} imported rows, ${counts.distinct.toLocaleString()} distinct ${split?'combinations':'values'}${resultState.search?` after filtering for “${esc(resultState.search)}”`:''}. A loaded COHORT_PREVIEW file contains at most 200 rows; these local counts are exploratory. The SAS script reads the completed jg093 run folder without writing to it.</p>${tableMarkup(split?[col,split,'Rows','Percent']:[col,'Rows','Percent'],counts.rows.map(r=>split?[r.value,r.group,r.count.toLocaleString(),`${r.percent.toFixed(1)}%`]:[r.value,r.count.toLocaleString(),`${r.percent.toFixed(1)}%`]))}${counts.truncated?'<p class="hint">Showing the top 100 values. The SAS count includes all levels.</p>':''}</div></section><section class="panel"><div class="panel-head"><div><h2>Imported-data missingness</h2><p>Fast local check for the selected CSV.</p></div></div>${tableMarkup(['Column','Missing','Percent'],missingness(table,{search:resultState.search}).map(r=>[r.column,r.missing.toLocaleString(),`${r.percent.toFixed(1)}%`]))}</section></div>`;
+  return `<div class="stack">${resultsToolbar()}<section class="panel"><div class="panel-head"><div><h2>SAS run diagnostics</h2><p>These tables were calculated by SAS over the completed cut.</p></div></div><div class="panel-body">${sasTables.length?`<div class="diagnostic-cards">${sasTables.map(name=>`<button class="diagnostic-card" type="button" data-result-select="${name}"><strong>${name.replaceAll('_',' ').toUpperCase()}</strong><span>${resultTables.get(name).rows.length.toLocaleString()} rows · Open table →</span></button>`).join('')}</div>`:'<p class="hint">Open DIAGNOSTICS, ATTRITION, COUNTS, MISSINGNESS, and EXTRACT_COUNTS CSV files from SAS to show authoritative full-run results here.</p>'}${resultTables.has('diagnostics')?tableMarkup(resultTables.get('diagnostics').columns,resultTables.get('diagnostics').rows.slice(0,5)):''}${resultTables.has('attrition')?`<h3 class="diagnostic-subhead">Cohort attrition</h3>${tableMarkup(resultTables.get('attrition').columns,resultTables.get('attrition').rows.slice(0,30))}`:''}</div></section><section class="panel"><div class="panel-head"><div><h2>Quick counts</h2><p>Explore values in the imported CSV, then download a read-only SAS count for the entire completed dataset.</p></div></div><div class="panel-body"><div class="results-controls"><div><label for="count-table">Imported dataset</label><select id="count-table" data-result-table>${[...resultTables.keys()].map(name=>option(name,name.toUpperCase(),selectedResult)).join('')}</select></div><div><label for="count-column">Count by</label><select id="count-column" data-count-column>${table.columns.map(c=>option(c,c,col)).join('')}</select></div><div><label for="count-split">Optional split</label><select id="count-split" data-count-split><option value="">None</option>${table.columns.filter(c=>c!==col).map(c=>option(c,c,split)).join('')}</select></div><div><label for="count-search">Filter imported rows</label><input id="count-search" data-result-search value="${esc(resultState.search)}" placeholder="Type, then press Enter"></div><button class="button" data-action="apply-result-search">Apply filter</button><button class="button" data-action="export-quick-count">Download full-data SAS count</button></div><p class="hint">Local preview: ${counts.total.toLocaleString()} imported rows, ${counts.distinct.toLocaleString()} distinct ${split?'combinations':'values'}${resultState.search?` after filtering for “${esc(resultState.search)}”`:''}. A loaded COHORT_PREVIEW file contains at most 200 rows; these local counts are exploratory. For COHORT_PREVIEW, the downloaded SAS counts the complete COHORT table. It reads your completed run folder without writing to it.</p>${tableMarkup(split?[col,split,'Rows','Percent']:[col,'Rows','Percent'],counts.rows.map(r=>split?[r.value,r.group,r.count.toLocaleString(),`${r.percent.toFixed(1)}%`]:[r.value,r.count.toLocaleString(),`${r.percent.toFixed(1)}%`]))}${counts.truncated?'<p class="hint">Showing the top 100 values. The SAS count includes all levels.</p>':''}</div></section><section class="panel"><div class="panel-head"><div><h2>Imported-data missingness</h2><p>Fast local check for the selected CSV.</p></div></div>${tableMarkup(['Column','Missing','Percent'],missingness(table,{search:resultState.search}).map(r=>[r.column,r.missing.toLocaleString(),`${r.percent.toFixed(1)}%`]))}</section></div>`;
 }
 function render() {
   activate();
   document.querySelector('.heading .eyebrow').textContent=populationLabel();
-  document.querySelector('.mode-banner span:last-child').textContent='Build and save cohort rules, then export to SAS. Source data stays in your SAS environment.';
+  document.querySelector('.mode-banner span:last-child').textContent=desktop?'Build, run, and review cohorts through your own local SAS session. Source data stays on the institutional server.':'Build and save cohort rules, then export to SAS. Source data stays in your SAS environment.';
+  document.querySelector('#execution-mode').textContent=desktop?'Local desktop execution':'Program export mode';
+  document.querySelectorAll('[data-view="run"], [data-view="profile"]').forEach(element=>element.hidden=!desktop);
+  const badge=document.querySelector('#job-indicator');
+  badge.hidden=!desktop;
+  if(desktop){badge.textContent=desktopJob?`${desktopJob.status==='running'?'● ':''}${desktopJob.status} · ${desktopJob.kind}`:'No SAS job';badge.dataset.status=desktopJob?.status||'idle';}
+  document.querySelector('#current-cohort-label').textContent=definition.name||'New cohort';
   document.querySelector('footer span:last-child').textContent=activeCdm()?'Mini-Sentinel CDM v3.0':'Legacy MarketScan 2023 profile';
   document.querySelector('.tabs [data-view="codebook"]').textContent=activeCdm()?'CDM dictionary':'2023 codebook';
   document.querySelector('#data-profile').value=activeCdm()?'CDM':'RAW';
   document.querySelectorAll('[data-view]').forEach(b=>{ b.classList.toggle(b.classList.contains('side-link')?'selected':'active',b.dataset.view===view); b.setAttribute('aria-current',b.dataset.view===view?'page':'false'); });
-  app.innerHTML=view==='graph'?renderTree(definition,catalog):view==='builder'?builder():view==='review'?review():view==='preview'?preview():view==='diagnostics'?diagnostics():codebook();
-  if(view==='review'&&activeCdm()){
+  app.innerHTML=view==='graph'?renderTree(definition,catalog):view==='builder'?builder():view==='saved'?savedWorkspace():view==='profile'?profileWorkspace():view==='preview'?preview():view==='diagnostics'?diagnostics():view==='run'?runWorkspace():codebook();
+  if(view==='saved'&&selectedSavedCohortId&&!cohortDirty&&activeCdm()&&desktop){
     const holder=app.querySelector('.summary-body');
     const button=document.createElement('button');
     button.className='button full-button';button.dataset.action='export-connect';button.textContent='Download local SAS/CONNECT program';
-    button.disabled=validateDefinition(definition).length>0;
+    button.disabled=validateDefinition(definition).length>0||!selectedRunProfileId||!definition.outputPath;
     holder.querySelector('[data-action="export-json"]').before(button);
-    const note=document.createElement('p');note.className='hint';note.textContent='Run this program in local SAS. It signs on, submits the stages remotely, and signs off. Set the server details in Cohort definition.';
+    const note=document.createElement('p');note.className='hint';note.textContent='For a local SAS/CONNECT runner, first select a profile and fresh output folder on Run in SAS. The engine and protocol downloads above are available now.';
     button.after(note);
   }
-  if(view==='graph')bindTree(app.querySelector('.tree-workspace'),definition,catalog,{
+  if(view==='graph'||view==='saved'&&selectedSavedCohortId)bindTree(app.querySelector('.tree-workspace'),definition,catalog,{
     changed,refresh:render,notify:toast,editEvent:openEventEditor,
     editStage:key=>{setView('builder');const target=document.querySelector(key==='population'?'#name':key==='demographics'?'#ageMin':key==='enrollment'?'#baseline':'#extractBefore');target?.scrollIntoView({block:'center'});target?.focus();},
     addRule:target=>{const index=addCriterion(target);if(index!==null){render();openEventEditor(index);}},
@@ -194,7 +302,7 @@ function updateExport() {
   const count=connectionIssues(definition).length;
   const counter=document.querySelector('.details-toggle .hint');
   if(counter)counter.textContent=`· ${count} to configure`;
-  if(view!=='review')return;
+  if(view!=='saved'||!selectedSavedCohortId||!app.querySelector('.code-preview'))return;
   const errors=validateDefinition(definition);
   document.querySelector('.code-preview').textContent=errors.length?errors.join('\n'):compileSas(definition,engine);
   document.querySelector('.protocol-preview').textContent=selectionProtocol(definition,catalog);
@@ -205,14 +313,90 @@ function updateExport() {
 function updateSummary() { const holder=document.querySelector('#summary-container'); if(holder) holder.innerHTML=summary(); }
 function download(content, filename, type) { const url=URL.createObjectURL(new Blob([content],{type})); const a=document.createElement('a'); a.href=url; a.download=filename; a.click(); setTimeout(()=>URL.revokeObjectURL(url),1000); }
 function filename(extension) { return `${definition.name.toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_|_$/g,'').slice(0,60)||'cohort'}_${activeCdm()?`cdm_${definition.yearStart}_${definition.yearEnd}`:'2023'}.${extension}`; }
+async function runDesktopJob(kind){
+  if(!desktop)return;
+  try{
+    if(kind!=='synthetic'){
+      if(!selectedRunCohortId||!selectedRunProfileId)throw new Error('Choose a saved cohort and investigator profile before running SAS.');
+      if(profileIssues().length)throw new Error(profileIssues().join(' '));
+      if(validateDefinition(definition).length)throw new Error(validateDefinition(definition).join(' '));
+      const folder=parseRunFolder(definition.outputPath);
+      if(folder.user!==desktopSettings.serverUser)throw new Error('Choose a run folder under the selected profile’s server home.');
+    }else if(!sasPathCheck?.ok)throw new Error('Validate your local SAS executable in Investigator profiles.');
+    if(view!=='run')setView('run');
+    desktopJob={status:'running',kind,startedAt:new Date().toISOString(),log:'Starting SAS…'};render();
+    desktopJob=await desktop.run({kind,definition,settings:connectSettings,sasExecutable:desktopSettings.sasExecutable,serverUser:desktopSettings.serverUser});
+    if(kind!=='synthetic')connectionCheck={ok:true,message:'The SAS/CONNECT host and port were reachable when this job started. SAS sign-on verifies your account.'};
+    if(view==='run')render();
+  }catch(error){desktopJob=await desktop.job().catch(()=>null);if(kind!=='synthetic')connectionCheck={ok:false,message:error.message};if(view==='run')render();toast(error.message);}
+}
+function scheduleRunRefresh(){
+  clearTimeout(runRefreshTimer);
+  runRefreshTimer=setTimeout(()=>{if(['run','profile'].includes(view)&&!app.querySelector('input:focus, select:focus, textarea:focus'))render();},150);
+}
+async function loadDesktopResults(){
+  try{
+    const files=await desktop.readResults(connectSettings.resultsFolder,connectSettings.includeCohort);
+    for(const file of files)resultTables.set(file.name.replace(/\.csv$/i,'').toLowerCase(),parseCsv(file.text));
+    selectedResult=resultTables.has('cohort_preview')?'cohort_preview':files[0].name.replace(/\.csv$/i,'').toLowerCase();
+    resultState={search:'',sortColumn:'',descending:false,page:1,visible:null,countColumn:'',splitColumn:''};
+    setView('preview');toast(`${files.length} local result files loaded.`);
+  }catch(error){toast(error.message);}
+}
 document.addEventListener('click', e=>{
   const browse=e.target.closest('[data-browse]');
   if(browse){const index=Number(browse.dataset.browse), r=index===-1?definition.index:definition.rules[index];openCodePicker({domain:r.domain,codes:r.codes,label:catalog.domains[r.domain].label,onApply:codes=>{r.codes=codes;document.querySelector(`#${index===-1?'index':`rule-${index}`}-codes`).value=codes;changed();updateSummary();}}).catch(error=>toast(error.message));return;}
   const covBrowse=e.target.closest('[data-cov-browse]');
   if(covBrowse){const r=definition.covariates[Number(covBrowse.dataset.covBrowse)];openCodePicker({domain:r.domain,codes:r.codes,label:cdm.catalog.domains[r.domain].label,onApply:codes=>{r.codes=codes;changed();render();}}).catch(error=>toast(error.message));return;}
+  const savedOpen=e.target.closest('[data-saved-open]');if(savedOpen){try{selectSavedCohort(savedOpen.dataset.savedOpen);}catch(error){toast(error.message);}return;}
+  const savedDelete=e.target.closest('[data-saved-delete]');if(savedDelete){
+    const item=savedCohorts.find(entry=>entry.id===savedDelete.dataset.savedDelete);
+    if(item&&!window.confirm(`Delete saved cohort “${item.name}” from this computer?`))return;
+    savedCohorts=savedCohorts.filter(entry=>entry.id!==savedDelete.dataset.savedDelete);
+    localStorage.setItem(SAVED_COHORTS_KEY,JSON.stringify(savedCohorts));
+    if(selectedSavedCohortId===savedDelete.dataset.savedDelete)selectedSavedCohortId='';
+    if(selectedRunCohortId===savedDelete.dataset.savedDelete)selectedRunCohortId='';
+    render();return;
+  }
   const viewButton=e.target.closest('[data-view]'); if(viewButton){setView(viewButton.dataset.view);return;}
   const action=e.target.closest('[data-action]')?.dataset.action;
-  if(['review','builder','graph','preview','diagnostics'].includes(action)){setView(action);return;}
+  if(action==='save-cohort'){saveCohort();return;}
+  if(action==='new-cohort'){definition=activeCdm()?cdm.freshDefinition():freshDefinition();if(desktop)definition.inputPath=desktopSourcePath;selectedSavedCohortId='';selectedRunCohortId='';changed();setView('builder');return;}
+  if(action==='edit-saved'){setView('builder');return;}
+  if(desktop&&action==='run-saved'){
+    const item=savedCohorts.find(entry=>entry.id===selectedSavedCohortId);
+    if(!item){toast('Open a saved cohort first.');return;}
+    definition=readDefinition(item.definition);if(activeCdm())definition.inputPath=desktopSourcePath;
+    selectedRunCohortId=item.id;selectedRunProfileId='';definition.outputPath='';setView('run');return;
+  }
+  if(desktop&&action==='choose-sas'){desktop.chooseSas().then(value=>{if(value){desktopSettings.sasExecutable=value;sasPathCheck=null;persistProfiles();void validateSasPath();}}).catch(error=>toast(error.message));return;}
+  if(desktop&&action==='validate-sas'){void validateSasPath();return;}
+  if(desktop&&action==='choose-results'){desktop.chooseResults().then(value=>{if(value){connectSettings.resultsFolder=value;persistProfiles();render();}}).catch(error=>toast(error.message));return;}
+  if(desktop&&action==='check-connection'){void checkDesktopConnection();return;}
+  if(desktop&&action==='save-profile'){try{persistProfiles();toast('Connection profile saved on this computer.');render();}catch(error){toast(error.message);}return;}
+  if(desktop&&action==='add-profile'){
+    try{
+      persistProfiles();
+      if(profiles.length>=20)throw new Error('Keep at most 20 connection profiles.');
+      const profile=createProfile(crypto.randomUUID(),`Profile ${profiles.length+1}`,desktopSettings.sasExecutable);
+      profile.host=desktopDefaultHost;
+      profiles.push(profile);useProfile(profile);selectedRunProfileId='';definition.outputPath='';persistProfiles();render();
+    }catch(error){toast(error.message);}
+    return;
+  }
+  if(desktop&&action==='delete-profile'){
+    if(profiles.length<2)return;
+    if(!window.confirm(`Delete the ${activeProfile()?.name||'selected'} connection profile from this computer?`))return;
+    profiles=profiles.filter(profile=>profile.id!==activeProfileId);
+    useProfile(profiles[0]);selectedRunProfileId='';definition.outputPath='';persistProfiles();render();return;
+  }
+  if(desktop&&action==='new-run-folder'){
+    try{freshRunPath();persistProfiles();render();}catch(error){toast(error.message);}return;
+  }
+  if(desktop&&['run-synthetic','run-cohort','run-results','run-preview'].includes(action)){void runDesktopJob(action.replace('run-',''));return;}
+  if(desktop&&action==='load-desktop-results'){void loadDesktopResults();return;}
+  if(desktop&&action==='open-job-folder'){desktop.openJobFolder().catch(error=>toast(error.message));return;}
+  if(['builder','graph','preview','diagnostics','profile','saved'].includes(action)){setView(action);return;}
   if(action==='add-rule'){const index=addCriterion();render();if(index!==null)document.querySelector(`#rule-${index}-codes`)?.focus();}
   if(action==='add-covariate'){const n=definition.covariates.length+1;definition.covariates.push({key:`feature_${n}`,label:`Feature ${n}`,domain:'DX',sources:['DIA'],codes:'',encTypes:Object.keys(cdm.ENC_TYPES),from:-365,to:-1,minDays:1});changed();render();document.querySelector(`#cov-${n-1}-key`)?.focus();}
   const covRemove=e.target.closest('[data-cov-remove]');if(covRemove){definition.covariates.splice(Number(covRemove.dataset.covRemove),1);changed();render();}
@@ -235,15 +419,63 @@ document.addEventListener('click', e=>{
 });
 app.addEventListener('input',e=>{
   const el=e.target;
+  if(el.dataset.desktop){
+    const key=el.dataset.desktop,previous=desktopSettings.serverUser;
+    desktopSettings[key]=el.value;
+    if(key==='sasExecutable')sasPathCheck=null;
+    if(key==='serverUser'&&(!desktopSettings.outputParent||desktopSettings.outputParent===`/storage/storage1/PHShome/${previous}`)){
+      desktopSettings.outputParent=el.value?`/storage/storage1/PHShome/${el.value}`:'';
+      const parent=app.querySelector('[data-desktop="outputParent"]');if(parent)parent.value=desktopSettings.outputParent;
+    }
+    if(key==='serverUser'||key==='outputParent')connectionCheck=null;
+    return;
+  }
   if(el.dataset.cov!==undefined&&el.dataset.key){const r=definition.covariates[Number(el.dataset.cov)];r[el.dataset.key]=el.type==='number'?(el.value===''?NaN:Number(el.value)):el.value;changed();updateSummary();return;}
-  if(el.dataset.connect){connectSettings[el.dataset.connect]=el.type==='checkbox'?el.checked:el.value;try{localStorage.setItem(CONNECT_KEY,JSON.stringify(connectSettings));}catch(error){toast(`Connection settings could not be saved. ${error.message}`);}return;}
-  if(el.dataset.connect==='includeCohort'){connectSettings.includeCohort=el.checked;try{localStorage.setItem(CONNECT_KEY,JSON.stringify(connectSettings));}catch(error){toast(`Connection settings could not be saved. ${error.message}`);}return;}
-  if(el.dataset.field){definition[el.dataset.field]=el.type==='checkbox'?el.checked:el.type==='number'?(el.value===''?NaN:Number(el.value)):el.value;changed();updateSummary();}
+  if(el.dataset.connect){
+    connectSettings[el.dataset.connect]=el.type==='checkbox'?el.checked:el.value;
+    if(['host','port','script'].includes(el.dataset.connect))connectionCheck=null;
+    if(!desktop)try{localStorage.setItem(CONNECT_KEY,JSON.stringify(connectSettings));}catch(error){toast(`Connection settings could not be saved. ${error.message}`);}
+    return;
+  }
+  if(el.dataset.field){definition[el.dataset.field]=el.type==='checkbox'?el.checked:el.type==='number'?(el.value===''?NaN:Number(el.value)):el.value;if(el.dataset.field!=='outputPath')changed();updateSummary();}
   if(el.dataset.map){definition.mapping[el.dataset.map]=el.value.trim();changed();} if(el.dataset.map||el.dataset.field)updateExport();
   if(el.dataset.rule!==undefined){const r=Number(el.dataset.rule)===-1?definition.index:definition.rules[Number(el.dataset.rule)];r[el.dataset.key]=el.type==='number'?(el.value===''?NaN:Number(el.value)):el.value;changed();updateSummary();}
 });
 app.addEventListener('change',e=>{
   const el=e.target;
+  if(desktop&&el.dataset.runProfileSelect!==undefined){
+    const selected=profiles.find(profile=>profile.id===el.value);
+    selectedRunProfileId=selected?.id||'';
+    if(selected){useProfile(selected);try{freshRunPath();}catch{definition.outputPath='';}void validateSasPath();}
+    else definition.outputPath='';
+    render();return;
+  }
+  if(desktop&&el.dataset.runCohortSelect!==undefined){
+    if(el.value){try{selectSavedCohort(el.value);selectedRunCohortId=el.value;if(selectedRunProfileId)try{freshRunPath();}catch{definition.outputPath='';}}catch(error){toast(error.message);}}
+    else{selectedRunCohortId='';definition.outputPath='';}
+    render();return;
+  }
+  if(desktop&&el.dataset.profileSelect!==undefined){
+    try{
+      persistProfiles();
+      const selected=profiles.find(profile=>profile.id===el.value);
+      if(!selected)throw new Error('Choose an existing connection profile.');
+      useProfile(selected);
+      selectedRunProfileId='';definition.outputPath='';void validateSasPath();
+      persistProfiles();render();
+    }catch(error){toast(error.message);render();}
+    return;
+  }
+  if(desktop&&el.dataset.profileName!==undefined){
+    try{const current=activeProfile();const oldName=current.name;current.name=el.value.trim();try{persistProfiles();}catch(error){current.name=oldName;throw error;}render();}catch(error){toast(error.message);render();}
+    return;
+  }
+  if(desktop&&(el.dataset.desktop||el.dataset.connect||el.dataset.field==='outputPath')){
+    try{persistProfiles();}catch(error){toast(error.message);}
+    if(el.dataset.desktop==='sasExecutable')void validateSasPath();
+    scheduleRunRefresh();
+    return;
+  }
   if(el.dataset.resultTable!==undefined){selectedResult=el.value;resultState={search:'',sortColumn:'',descending:false,page:1,visible:null,countColumn:'',splitColumn:''};render();return;}
   if(el.dataset.resultColumn!==undefined){if(!resultState.visible)resultState.visible=new Set(activeResult().columns);el.checked?resultState.visible.add(el.dataset.resultColumn):resultState.visible.delete(el.dataset.resultColumn);if(!resultState.visible.size){resultState.visible.add(el.dataset.resultColumn);toast('Keep at least one column visible.');}render();return;}
   if(el.dataset.countColumn!==undefined){resultState.countColumn=el.value;if(resultState.splitColumn===el.value)resultState.splitColumn='';render();return;}
@@ -258,18 +490,17 @@ app.addEventListener('change',e=>{
   if(el.dataset.key==='domain'){const r=Number(el.dataset.rule)===-1?definition.index:definition.rules[Number(el.dataset.rule)];r.sources=DOMAINS[r.domain].slice(0,2);r.codes='';changed();render();}
   if(['enrollment','rx','family','edition','indexOrder','yearStart','yearEnd'].includes(el.dataset.field)){if(!definition.enrollment)definition.rx=false;if(['family','edition'].includes(el.dataset.field))definition.mapping=Object.fromEntries(TABLES.map(t=>[t,'']));render();}
 });
-document.querySelector('#review-button').onclick=()=>setView('review');
+document.querySelector('#review-button').onclick=saveCohort;
 document.querySelector('#data-profile').onchange=e=>{
   try{
     localStorage.setItem(activeCdm()?DRAFT_KEY:LEGACY_DRAFT_KEY,JSON.stringify(definition));
     const c=e.target.value==='CDM',stored=localStorage.getItem(c?DRAFT_KEY:LEGACY_DRAFT_KEY);
     definition=stored?readDefinition(JSON.parse(stored)):(c?cdm.freshDefinition():freshDefinition());
+    selectedSavedCohortId='';selectedRunCohortId='';
     document.querySelector('#save-state').textContent='Local draft';setView('graph');
   }catch(error){e.target.value=activeCdm()?'CDM':'RAW';toast(`Could not switch profiles. ${error.message}`);}
 };
-document.querySelector('#save-button').onclick=()=>{
-  try{localStorage.setItem(activeCdm()?DRAFT_KEY:LEGACY_DRAFT_KEY,JSON.stringify(definition));document.querySelector('#save-state').textContent='Saved on this device';toast('Draft saved on this device.');}catch(error){toast(`Draft could not be saved. ${error.message}`);}
-};
+document.querySelector('#save-button').onclick=saveCohort;
 document.querySelector('#import-button').onclick=()=>document.querySelector('#import-file').click();
 document.querySelector('#result-files').onchange=async e=>{
   const files=[...e.target.files];if(!files.length)return;
@@ -290,16 +521,49 @@ document.querySelector('#import-file').onchange=async e=>{
   const file=e.target.files[0];if(!file)return;
   try{
     if(file.size>500000)throw new Error('The definition file exceeds 500 KB.');
-    definition=readDefinition(JSON.parse(await file.text()));changed();setView('graph');toast('Definition opened.');
+    definition=readDefinition(JSON.parse(await file.text()));selectedSavedCohortId='';selectedRunCohortId='';if(desktop&&activeCdm())definition.inputPath=desktopSourcePath;changed();setView('graph');toast('Definition opened.');
   }catch(error){toast(`Could not open definition. ${error.message}`);}finally{e.target.value='';}
 };
 try {
   try{const saved=JSON.parse(localStorage.getItem(CONNECT_KEY));if(saved&&typeof saved==='object')connectSettings={...connectSettings,...saved};}catch(error){toast(`Connection settings could not be loaded. ${error.message}`);}
-  const responses=await Promise.all([fetch('./catalog.json?v=a55109c8b4fb'),fetch('./cohort_engine.sas?v=a55109c8b4fb'),fetch('./cdm_engine.sas?v=a55109c8b4fb')]);
+  const responses=await Promise.all([fetch('./catalog.json?v=d8068fd47f0c'),fetch('./cohort_engine.sas?v=d8068fd47f0c'),fetch('./cdm_engine.sas?v=d8068fd47f0c')]);
   if(responses.some(r=>!r.ok))throw new Error('Unable to load the schema or SAS engine.');
   rawCatalog=await responses[0].json();rawEngine=await responses[1].text();cdmEngine=await responses[2].text();activate();
   let stored;
   try{stored=localStorage.getItem(DRAFT_KEY);}catch(error){toast(`Local draft storage is unavailable. ${error.message}`);}
   if(stored){try{definition=readDefinition(JSON.parse(stored));document.querySelector('#save-state').textContent='Saved on this device';}catch(error){definition=cdm.freshDefinition();toast(`The saved draft could not be loaded. ${error.message}`);}}
+  try{const raw=localStorage.getItem(SAVED_COHORTS_KEY);if(raw)savedCohorts=readSavedCohorts(JSON.parse(raw));}catch(error){toast(`Saved cohort library could not be loaded. ${error.message}`);}
+  if(desktop){
+    try{const saved=JSON.parse(localStorage.getItem(DESKTOP_KEY));if(saved&&typeof saved==='object')desktopSettings={...desktopSettings,...saved};}catch(error){toast(`Desktop settings could not be loaded. ${error.message}`);}
+    const environment=await desktop.environment();
+    desktopDefaultHost=environment.defaultHost||'';
+    desktopSourcePath=environment.sourcePath;
+    desktopJob=environment.job;
+    if(!desktopSettings.sasExecutable)desktopSettings.sasExecutable=environment.defaultSas;
+    if(!desktopSettings.serverUser&&definition.outputPath)desktopSettings.serverUser=definition.outputPath.split('/')[4]||'';
+    if(!desktopSettings.outputParent&&desktopSettings.serverUser)desktopSettings.outputParent=`/storage/storage1/PHShome/${desktopSettings.serverUser}`;
+    let storedProfiles=null;
+    try{const raw=localStorage.getItem(PROFILE_KEY);if(raw)storedProfiles=readProfileStore(JSON.parse(raw));}catch(error){toast(`Connection profiles could not be loaded. ${error.message}`);}
+    if(storedProfiles){profiles=storedProfiles.profiles;activeProfileId=storedProfiles.activeId;useProfile(activeProfile());}
+    else{
+      if(!connectSettings.host)connectSettings.host=desktopDefaultHost;
+      const first=createProfile(crypto.randomUUID(),'Personal',desktopSettings.sasExecutable);
+      profiles=[profileFromSettings(first,desktopSettings,connectSettings)];activeProfileId=first.id;
+      useProfile(profiles[0]);persistProfiles();view='profile';
+    }
+    if(activeCdm()&&!definition.inputPath)definition.inputPath=desktopSourcePath;
+    if(desktopSettings.sasExecutable)void validateSasPath();
+    desktop.onJobUpdate(state=>{
+      const previous=desktopJob?.status;desktopJob=state;
+      if(view==='run'&&previous===state.status&&app.querySelector('.job-log')){
+        const log=app.querySelector('.job-log'),follow=log.scrollTop+log.clientHeight>=log.scrollHeight-30;
+        log.textContent=state.log||'Waiting for SAS output. If SAS opens a sign-on prompt, enter your credentials there.';
+        if(follow)log.scrollTop=log.scrollHeight;
+        const label=app.querySelector('#job-state');if(label)label.textContent=`${state.status} · ${state.kind} · ${state.startedAt||''}`;
+        const badge=document.querySelector('#job-indicator');badge.textContent=`${state.status==='running'?'● ':''}${state.status} · ${state.kind}`;badge.dataset.status=state.status;
+      }else if(view==='run')render();
+      else{const badge=document.querySelector('#job-indicator');badge.textContent=`${state.status==='running'?'● ':''}${state.status} · ${state.kind}`;badge.dataset.status=state.status;}
+    });
+  }
   render();
 } catch(error) { app.innerHTML=`<div class="error-screen"><h2>The workspace could not load.</h2><p>${esc(error.message)}</p><p>Reload this page to retry. For a local copy, start the server with <code>npm start</code>.</p></div>`; }

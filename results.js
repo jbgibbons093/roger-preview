@@ -1,4 +1,5 @@
 // Browser-local inspection of CSV files exported from SAS. Nothing is uploaded or persisted.
+import { parseRunFolder } from './paths.js?v=d8068fd47f0c';
 export function parseCsv(source,{maxRows=200000}={}){
   if(typeof source!=='string')throw new Error('Expected CSV text.');
   const rows=[];let row=[],cell='',quoted=false;
@@ -64,8 +65,10 @@ export function missingness(table,{search=''}={}){
 
 export function compileQuickCount({dataset,column,split='',outputPath,host,port,script}){
   if(!/^[A-Za-z_][A-Za-z0-9_]{0,31}$/.test(dataset)||!/^[A-Za-z_][A-Za-z0-9_]{0,31}$/.test(column)||split&&!/^[A-Za-z_][A-Za-z0-9_]{0,31}$/.test(split))throw new Error('SAS table and columns need valid SAS names.');
-  if(!/^\/storage\/storage1\/PHShome\/jg093\/[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(outputPath))throw new Error('Set the completed run folder under your jg093 home.');
+  if(dataset.toLowerCase()==='cohort_preview'&&[column,split].some(name=>name.toLowerCase()==='preview_row'))throw new Error('preview_row exists only in the 200-row preview. Choose a cohort variable for the full-data count.');
+  const serverDataset=dataset.toLowerCase()==='cohort_preview'?'cohort':dataset;
+  parseRunFolder(outputPath);
   if(!/^(?=.{1,253}$)[A-Za-z0-9]+(?:[.-][A-Za-z0-9]+)*$/.test(host)||!Number.isInteger(Number(port))||Number(port)<1||Number(port)>65535||!(/^[A-Za-z]:\\[^\r\n;]*\.scr$/i.test(script)))throw new Error('Complete the local SAS/CONNECT settings in the cohort builder.');
   const q=s=>`'${s.replaceAll("'","''")}'`;
-  return `/* ROGER quick count. Reads completed run outputs only; writes no server files. */\n%let mynode=${host} ${Number(port)};\noptions comamid=tcp;\nfilename rlink ${q(script)};\nsignon mynode.sasspawn;\nrsubmit;\nlibname RGOUT ${q(outputPath)} access=readonly;\nproc freq data=RGOUT.${dataset} order=freq;\n  tables ${column}${split?`*${split}`:''} / missing;\nrun;\nlibname RGOUT clear;\nendrsubmit;\nsignoff mynode.sasspawn nocscript;\n`;
+  return `/* ROGER quick count. Reads completed run outputs only; writes no server files. */\n%let mynode=${host} ${Number(port)};\noptions comamid=tcp;\nfilename rlink ${q(script)};\nsignon mynode.sasspawn;\nrsubmit;\nlibname RGOUT ${q(outputPath)} access=readonly;\nproc freq data=RGOUT.${serverDataset} order=freq;\n  tables ${column}${split?`*${split}`:''} / missing;\nrun;\nlibname RGOUT clear;\nendrsubmit;\nsignoff mynode.sasspawn nocscript;\n`;
 }
