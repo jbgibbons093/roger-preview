@@ -1,4 +1,4 @@
-import { treeFor, logicText, logicIssues, usesOr } from './logic.js?v=6a6eb270afc6';
+import { treeFor, logicText, logicIssues, usesOr } from './logic.js?v=2164d6d6b6fc';
 
 export const schemaId = 'mini-sentinel-cdm-3.0-v1';
 export const TABLES = ['DEM','DEA','ENR','ENC','DIA','PRO','DIS'];
@@ -31,7 +31,7 @@ export function freshDefinition(){
   return {schemaId,name:'Untitled cohort',family:'CDM',edition:'3.0',yearStart:2013,yearEnd:2023,
     start:'2023-04-01',end:'2023-12-31',ageMin:18,ageMax:64,sex:'ALL',
     enrollment:true,baseline:90,followup:0,gap:0,rx:false,
-    index:{domain:'DX',sources:['DIA'],codes:'',encTypes:Object.keys(ENC_TYPES)},rules:[],
+    index:{domain:'DX',sources:['DIA'],codes:'',encTypes:Object.keys(ENC_TYPES)},rules:[],covariates:[],
     extractBefore:90,extractAfter:0,outputs:['DEM','DIA','DIS','ENR'],
     mapping:Object.fromEntries(TABLES.map(t=>[t,'MS.'+catalog.tables[t].pattern])),inputPath:'',outputPath:'',
     indexOrder:'FIRST',stopAfter:'DELIVER',afterIndexSas:'',afterEligibilitySas:'',logic:null,graph:{positions:{},notes:{}}};
@@ -41,7 +41,7 @@ export function expandMapping(d,t){
   if(years.length>100)throw new Error('Use at most 100 delivery years.');
   return years.map(year=>({table:t,year,dataset:d.mapping[t].replaceAll('{start}',d.yearStart).replaceAll('{end}',d.yearEnd).replaceAll('{year}',year)}));
 }
-export function requiredTables(d){return TABLES.filter(t=>t==='DEM'||t==='ENR'&&d.enrollment||d.outputs.includes(t)||[d.index,...d.rules].some(r=>r.sources.includes(t)));}
+export function requiredTables(d){return TABLES.filter(t=>t==='DEM'||t==='ENR'&&d.enrollment||d.outputs.includes(t)||[d.index,...d.rules,...(d.covariates||[])].some(r=>r.sources.includes(t)));}
 const integer=(v,min,max)=>Number.isInteger(v)&&v>=min&&v<=max;
 const date=v=>/^\d{4}-\d{2}-\d{2}$/.test(v)&&Number.isFinite(Date.parse(v))&&new Date(v).toISOString().slice(0,10)===v;
 export function validate(d,parseCodes){
@@ -64,6 +64,18 @@ export function validate(d,parseCodes){
     try{const codes=parseCodes(r.codes,r.domain);if(!codes.length||codes.length>500)errors.push(`${label} needs 1–500 codes.`);}catch(e){errors.push(`${label}. ${e.message}`);}
     if(i&&(!integer(r.from,-3650,3650)||!integer(r.to,r.from,3650)||!integer(r.minDays,1,r.to-r.from+1)))errors.push(`${label} needs ordered days from -3650 through 3650 and a feasible distinct-day threshold.`);
   });
+  if(!Array.isArray(d.covariates)||d.covariates.length>20)errors.push('Choose at most 20 covariates.');
+  const seenCovariates=new Set();
+  (Array.isArray(d.covariates)?d.covariates:[]).forEach((r,i)=>{
+    const label=`Covariate ${i+1}`;
+    if(!/^[a-z][a-z0-9_]{0,19}$/.test(r.key||'')||seenCovariates.has(r.key))errors.push(`${label} needs a unique SAS-safe key of 1–20 lowercase letters, digits, or underscores.`);
+    seenCovariates.add(r.key);
+    if(!r.label?.trim()||r.label.length>80||/[\x00-\x1f|]/.test(r.label))errors.push(`${label} needs a label of 1–80 characters without |.`);
+    if(!Object.hasOwn(DOMAINS,r.domain)||r.sources?.length!==1||r.sources[0]!==DOMAINS[r.domain][0])errors.push(`${label} needs one compatible CDM source table.`);
+    if(r.domain!=='NDC'&&(!Array.isArray(r.encTypes)||!r.encTypes.length))errors.push(`${label} needs an encounter type.`);
+    try{const codes=parseCodes(r.codes,r.domain);if(!codes.length||codes.length>500)errors.push(`${label} needs 1–500 codes.`);}catch(e){errors.push(`${label}. ${e.message}`);}
+    if(!integer(r.from,-3650,3650)||!integer(r.to,r.from,3650)||!integer(r.minDays,1,r.to-r.from+1))errors.push(`${label} needs an ordered index-relative day window and feasible distinct-day threshold.`);
+  });
   for(const key of ['inputPath','outputPath'])if(/[\x00-\x1f]/.test(d[key])||d[key].length>250)errors.push('Library paths must be single lines of at most 250 characters.');
   if(d.inputPath&&d.outputPath){
     const source=d.inputPath.replaceAll('\\','/').replace(/\/+$/,'').toLowerCase();
@@ -80,8 +92,8 @@ export function validate(d,parseCodes){
     }
     if(date(d.start)&&date(d.end)){
       const timedOutputs=d.outputs.some(t=>!['DEM','DEA'].includes(t));
-      const before=Math.max(d.enrollment?d.baseline:0,timedOutputs?d.extractBefore:0,...d.rules.map(r=>-r.from),0);
-      const after=Math.max(d.enrollment?d.followup:0,timedOutputs?d.extractAfter:0,...d.rules.map(r=>r.to),0);
+      const before=Math.max(d.enrollment?d.baseline:0,timedOutputs?d.extractBefore:0,...d.rules.map(r=>-r.from),...(d.covariates||[]).map(r=>-r.from),0);
+      const after=Math.max(d.enrollment?d.followup:0,timedOutputs?d.extractAfter:0,...d.rules.map(r=>r.to),...(d.covariates||[]).map(r=>r.to),0);
       if(Date.parse(d.start)-before*86400000<Date.parse(`${d.yearStart}-01-01`)||Date.parse(d.end)+after*86400000>Date.parse(`${d.yearEnd}-12-31`))errors.push('Index dates and all requested observation windows must fit within the delivery years.');
     }
   }
@@ -91,7 +103,7 @@ const q=s=>`'${String(s).replaceAll("'","''")}'`;
 export function compile(d,engine,parseCodes){
   if(!engine.includes('%macro roger_cdm_cut;'))throw new Error('The CDM SAS engine could not be loaded.');
   const tables=requiredTables(d),files=tables.flatMap(t=>expandMapping(d,t));
-  const rules=[{...d.index,mode:'INDEX',minDays:1,from:0,to:0},...d.rules];
+  const rules=[{...d.index,mode:'INDEX',minDays:1,from:0,to:0},...d.rules],covariates=d.covariates||[];
   const tree=treeFor(d);
   const parameters={age_min:d.ageMin,age_max:d.ageMax,sex:d.sex,enrollment:+d.enrollment,baseline:d.baseline,followup:d.followup,gap:d.gap,rx:+d.rx,extract_before:d.extractBefore,extract_after:d.extractAfter,outputs:d.outputs.join(' '),outlib:d.outputPath?'RGCUT':'WORK',index_order:d.indexOrder,advanced_logic:+usesOr(tree),stop_after:d.stopAfter};
   return `/* ROGER Mini-Sentinel CDM v3.0. SAS 9.4.
@@ -134,7 +146,15 @@ data work._rg_codes;
   infile datalines4 dlm='|' dsd truncover;
   input rule_id code :$18. match_type :$6.;
 datalines4;
-${rules.flatMap((r,i)=>parseCodes(r.codes,r.domain).map(c=>`${i+1}|${c.code}|${c.match}`)).join('\n')}
+${[...rules.flatMap((r,i)=>parseCodes(r.codes,r.domain).map(c=>`${i+1}|${c.code}|${c.match}`)),...covariates.flatMap((r,i)=>parseCodes(r.codes,r.domain).map(c=>`${1001+i}|${c.code}|${c.match}`))].join('\n')}
+;;;;
+run;
+data work._rg_covariates;
+  length cov_id min_days lower_day upper_day 8 key $20 label $80 domain $5 sources $3 enc_types $14;
+  infile datalines4 dlm='|' dsd truncover;
+  input cov_id key :$20. label :$80. domain :$5. sources :$3. min_days lower_day upper_day enc_types :$14.;
+datalines4;
+${covariates.map((r,i)=>`${1001+i}|${r.key}|${r.label}|${r.domain}|${r.sources[0]}|${r.minDays}|${r.from}|${r.to}|${r.encTypes.join(' ')}`).join('\n')}
 ;;;;
 run;
 data work._rg_manifest;
@@ -151,6 +171,17 @@ run;
     ${d.rules.length?`if ${logicText(tree,i=>`_rg_pass_${i+2}=1`)};`:''}
     drop _rg_pass_:;
   run;
+%mend;
+
+%macro rg_build_covariates;
+${covariates.map((r,i)=>`  %rg_covariate(${1001+i},${r.domain},${r.sources[0]},${r.encTypes.join(' ')},${r.from},${r.to},${r.minDays},${r.key});`).join('\n')||'  /* No selected code-based covariates. */'}
+%mend;
+
+%macro rg_covariate_counts;
+${covariates.map(r=>`  dimension='Covariate: ${r.key}'; value=ifc(cov_${r.key}=1,'Yes','No'); output;`).join('\n')||'  /* No selected covariates. */'}
+%mend;
+%macro rg_covariate_missing;
+${covariates.map(r=>`  variable='cov_${r.key}'; is_missing=missing(cov_${r.key}); output;`).join('\n')||'  /* No selected covariates. */'}
 %mend;
 
 ${engine}
@@ -208,6 +239,21 @@ rsubmit;
 ${createOutput}
 ${body}
 endrsubmit;
-signoff mynode;
+signoff mynode.sasspawn nocscript;
 `;
+}
+
+export function compileResultsExport(d,settings){
+  const output=String(d.outputPath||'').trim();
+  if(!/^\/storage\/storage1\/PHShome\/jg093\/[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(output))throw new Error('Choose the completed one-level run folder under jg093.');
+  const host=String(settings.host||'').trim(),port=Number(settings.port),script=String(settings.script||'').trim();
+  if(!/^(?=.{1,253}$)[A-Za-z0-9]+(?:[.-][A-Za-z0-9]+)*$/.test(host)||!Number.isInteger(port)||port<1||port>65535||!(/^[A-Za-z]:\\[^\r\n;]*\.scr$/i.test(script)))throw new Error('Complete the local SAS/CONNECT settings.');
+  const folder=String(settings.resultsFolder||'').trim().replace(/[\\/]+$/,'');
+  if(!/^[A-Za-z]:\\[^\r\n;'"%&]{1,220}$/.test(folder))throw new Error('Enter an existing Windows folder for local CSV results.');
+  const tables=['cohort_preview','diagnostics','attrition','counts','missingness','extract_counts','covariate_specs',...(settings.includeCohort?['cohort']:[])];
+  const quote=s=>`'${s.replaceAll("'","''")}'`;
+  const checks=tables.map(t=>`  if fileexist(${quote(`${folder}\\${t}.csv`)}) then do; put 'ERROR: ${t}.csv already exists. Use an empty results folder.'; abort cancel; end;`).join('\n');
+  const workChecks=tables.map(t=>`%if %sysfunc(exist(work.rg_${t})) %then %do; %put ERROR: WORK.RG_${t} already exists. Start a fresh local SAS session.; %abort cancel; %end;`).join('\n');
+  const deliveredChecks=tables.map(t=>`%if not %sysfunc(exist(work.rg_${t})) %then %do; %put ERROR: ${t} did not download.; %abort cancel; %end;`).join('\n');
+  return `/* Run in a fresh local SAS 9.4 session after the cohort cut. Local CSV files are created only in the selected folder.\n   ROGER never writes into the CDM source or completed server run folder. */\n%macro rg_result_precheck;\n${workChecks}\n%mend;\n%rg_result_precheck;\ndata _null_;\n  if not fileexist(${quote(folder)}) then do; put 'ERROR: Local results folder does not exist.'; abort cancel; end;\n${checks}\nrun;\n%let mynode=${host} ${port};\noptions comamid=tcp;\nfilename rlink ${quote(script)};\nsignon mynode.sasspawn;\nrsubmit;\nlibname RGOUT ${quote(output)} access=readonly;\n${tables.map(t=>`proc download data=RGOUT.${t} out=work.rg_${t}; run;`).join('\n')}\nlibname RGOUT clear;\nendrsubmit;\nsignoff mynode.sasspawn nocscript;\n%macro rg_result_postcheck;\n  %if &syscc > 4 %then %do; %put ERROR: SAS/CONNECT download failed.; %abort cancel; %end;\n${deliveredChecks}\n%mend;\n%rg_result_postcheck;\n${tables.map(t=>`proc export data=work.rg_${t} outfile=${quote(`${folder}\\${t}.csv`)} dbms=csv; run;`).join('\n')}\n`;
 }

@@ -1,5 +1,5 @@
-import * as cdm from './cdm.js?v=6a6eb270afc6';
-import { treeFor, logicIssues, logicText, usesOr } from './logic.js?v=6a6eb270afc6';
+import * as cdm from './cdm.js?v=2164d6d6b6fc';
+import { treeFor, logicIssues, logicText, usesOr } from './logic.js?v=2164d6d6b6fc';
 export const TABLES = ['O', 'S', 'I', 'F', 'D', 'T'];
 export const DOMAINS = { DX: ['O', 'S', 'I', 'F'], PCS: ['I', 'S', 'O'], CPT: ['O', 'S'], HCPCS: ['O', 'S'], DRG: ['I', 'S'], NDC: ['D'] };
 export const schemaId = 'marketscan-ccae-mdcr-2023-v1';
@@ -41,7 +41,7 @@ export function readDefinition(candidate) {
   const tables = cdm.isCdm(candidate) ? cdm.TABLES : TABLES;
   const domains = cdm.isCdm(candidate) ? cdm.DOMAINS : DOMAINS;
   // Older definitions use the original first-index, all-AND semantics.
-  candidate={indexOrder:'FIRST',logic:null,graph:{positions:{},notes:{}},...(cdm.isCdm(candidate)?{stopAfter:'DELIVER',afterIndexSas:'',afterEligibilitySas:''}:{}),...candidate};
+  candidate={indexOrder:'FIRST',logic:null,graph:{positions:{},notes:{}},...(cdm.isCdm(candidate)?{stopAfter:'DELIVER',afterIndexSas:'',afterEligibilitySas:'',covariates:[]}:{}),...candidate};
   if (candidate.schemaId !== base.schemaId) throw new Error('This definition requires a different year or schema version.');
   for (const [key, value] of Object.entries(base)) {
     if (!Object.hasOwn(candidate, key)) throw new Error(`Missing definition field ${key}.`);
@@ -51,6 +51,12 @@ export function readDefinition(candidate) {
   }
   for (const [key, choices] of Object.entries(cdm.isCdm(candidate)?{family:['CDM'],edition:['3.0'],sex:['ALL','M','F','A','U']}:{family:['CCAE','MDCR'],edition:['A','B'],sex:['ALL','1','2']})) if (!choices.includes(candidate[key])) throw new Error(`Unsupported ${key}.`);
   if (!Array.isArray(candidate.rules) || candidate.rules.length > 20) throw new Error('Expected up to 20 eligibility criteria.');
+  if(cdm.isCdm(candidate)){
+    if(!Array.isArray(candidate.covariates)||candidate.covariates.length>20)throw new Error('Expected up to 20 covariates.');
+    for(const r of candidate.covariates){
+      if(!r||typeof r.key!=='string'||r.key.length>20||typeof r.label!=='string'||r.label.length>80||!Object.hasOwn(cdm.DOMAINS,r.domain)||typeof r.codes!=='string'||r.codes.length>20000||!Array.isArray(r.sources)||r.sources.length!==1||r.sources[0]!==cdm.DOMAINS[r.domain][0]||!Array.isArray(r.encTypes)||r.encTypes.some(t=>!Object.hasOwn(cdm.ENC_TYPES,t))||['from','to','minDays'].some(k=>!Number.isFinite(r[k])))throw new Error('Invalid covariate definition.');
+    }
+  }
   if(!['FIRST','LAST'].includes(candidate.indexOrder))throw new Error('Choose first or last matching index event.');
   if(candidate.logic!==null){const issues=logicIssues(candidate.logic,candidate.rules.length,true);if(issues.length)throw new Error(issues[0]);}
   if(!candidate.graph||typeof candidate.graph!=='object')throw new Error('Invalid graph metadata.');

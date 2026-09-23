@@ -1,5 +1,5 @@
-import { isCdm } from './cdm.js?v=6a6eb270afc6';
-import { treeFor, groupsIn, logicText, moveCondition } from './logic.js?v=6a6eb270afc6';
+import { isCdm } from './cdm.js?v=2164d6d6b6fc';
+import { treeFor, groupsIn, logicText, moveCondition } from './logic.js?v=2164d6d6b6fc';
 
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const WIDTH=210, HEIGHT=166;
@@ -26,7 +26,7 @@ function graphModel(d,catalog){
     add(group.id,group.id===tree.id?'Eligibility tree':`Group ${group.id.slice(1)}`,'group',`${group.op==='AND'?'AND · every condition':'OR · any condition'}\n${group.children.length} connected item(s)`,group.id===tree.id?270:30+(start+leaf-1)*120,group.id===tree.id?250:250+depth*220);
   }
   branch(tree,0);
-  add('output','Selected population','stage',`One row per person\n${d.outputs.length?d.outputs.join(', ')+' extracts':'Cohort and audit tables'}\nCounts available after SAS execution`,30,250);
+  add('output','Selected population','stage',`One row per person\n${d.covariates?.length?`${d.covariates.length} baseline covariate${d.covariates.length===1?'':'s'}\n`:''}${d.outputs.length?d.outputs.join(', ')+' extracts':'Cohort and audit tables'}\nCounts available after SAS execution`,30,250);
   edges.push(['population','index'],['index','demographics'],['demographics','enrollment'],['enrollment',tree.id],[tree.id,'output']);
   return {nodes,edges,tree,width:Math.max(760,...nodes.map(n=>n.x+WIDTH+40)),height:Math.max(680,...nodes.map(n=>n.y+HEIGHT+60))};
 }

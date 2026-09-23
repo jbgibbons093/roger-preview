@@ -1,6 +1,6 @@
-import { treeFor, logicText, usesOr } from './logic.js?v=6a6eb270afc6';
-import { validateDefinition, parseCodes } from './cohort.js?v=6a6eb270afc6';
-import { isCdm, requiredTables, expandMapping } from './cdm.js?v=6a6eb270afc6';
+import { treeFor, logicText, usesOr } from './logic.js?v=2164d6d6b6fc';
+import { validateDefinition, parseCodes } from './cohort.js?v=2164d6d6b6fc';
+import { isCdm, requiredTables, expandMapping } from './cdm.js?v=2164d6d6b6fc';
 
 export function selectionProtocol(d,catalog){
   if(isCdm(d))return cdmProtocol(d,catalog);
@@ -70,8 +70,10 @@ function cdmProtocol(d,catalog){
     'SAS STAGES AND ADD-ON CODE',
     `Run through ${d.stopAfter}. Index selection writes WORK._RG_COHORT and reports people and index dates. Eligibility consumes that cohort and reports attrition. Final delivery writes requested outputs. Add-on code after index selection: ${d.afterIndexSas.trim()||'[none]'}`,
     `Add-on code after eligibility: ${d.afterEligibilitySas.trim()||'[none]'}. SAS checks that each add-on preserves one row per PatID and nonmissing PatID/index_date. Review custom code and its effects before interpreting counts.`,
+    'BASELINE COVARIATES',
+    ...(d.covariates?.length?d.covariates.map(r=>`${r.label} (cov_${r.key}). ${catalog.domains[r.domain].label}; source ${r.sources[0]}; index days ${r.from} through ${r.to}, inclusive; flag requires at least ${r.minDays} distinct event day(s). EncType: ${r.domain==='NDC'?'not applicable':r.encTypes.join(', ')}. Codes: ${r.codes}. Each covariate is calculated after eligibility and does not change selection.`):['No code-based covariates selected.']),
     'OUTPUTS',
-    `${d.stopAfter==='DELIVER'?'At final delivery, export':'If resumed through final delivery, export'} one row per selected PatID with index provenance, recorded Birth_Date and Sex, and calculated age_at_index. Include ATTRITION, DEFINITION, RULES, CODE_SETS, and INPUT_MANIFEST with expanded source filenames. ${d.outputs.length?`Requested extracts are ${d.outputs.join(', ')}. Clinical extracts include all records from index minus ${d.extractBefore} through index plus ${d.extractAfter} days, inclusive, regardless of event code lists or encounter-type filters. Enrollment extracts include overlapping valid intervals with their original endpoints and coverage flags. Demographic and Death extracts include all records for selected people, including deaths outside the clinical extraction window. Death metadata remains as supplied. Annual extracts remain separate CUT_<table>_<year> files to preserve source attributes. Pooled extracts are CUT_DEM, CUT_DEA, or CUT_ENR as selected.`:'No source extracts requested.'}`,
+    `${d.stopAfter==='DELIVER'?'At final delivery, export':'If resumed through final delivery, export'} one row per selected PatID with index provenance, recorded Birth_Date and Sex, calculated age_at_index, and selected covariates. Include ATTRITION, DEFINITION, RULES, CODE_SETS, INPUT_MANIFEST, COVARIATE_SPECS, DIAGNOSTICS, COUNTS, MISSINGNESS, EXTRACT_COUNTS, and a 200-row COHORT_PREVIEW without PatID. ${d.outputs.length?`Requested extracts are ${d.outputs.join(', ')}. Clinical extracts include all records from index minus ${d.extractBefore} through index plus ${d.extractAfter} days, inclusive, regardless of event code lists or encounter-type filters. Enrollment extracts include overlapping valid intervals with their original endpoints and coverage flags. Demographic and Death extracts include all records for selected people, including deaths outside the clinical extraction window. Death metadata remains as supplied. Annual extracts remain separate CUT_<table>_<year> files to preserve source attributes. Pooled extracts are CUT_DEM, CUT_DEA, or CUT_ENR as selected.`:'No source extracts requested.'}`,
     'ATTRITION',usesOr(tree)?'Report counts after index, demographics, enrollment when required, and the combined condition tree. Overlapping branches are evaluated together.':'Report counts after index, demographics, enrollment when required, and criteria in numbered order.',
     'ANNOTATIONS',...Object.entries(d.graph.notes).filter(([,note])=>note.trim()).map(([key,note])=>`${/^r\d+$/.test(key)?`Criterion ${Number(key.slice(1))+1}`:key}\n${note}`),
     'FILENAME TEMPLATES',...Object.entries(d.mapping).map(([t,value])=>`${t} = ${value||'[mapping required]'}`),

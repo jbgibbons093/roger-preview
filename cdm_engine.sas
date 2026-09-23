@@ -174,6 +174,11 @@
           ;
         quit;
         %rg_checkpoint(extracting &ds);
+        proc sql;
+          insert into work._rg_extract_counts (dataset,rows,people)
+          select "&target",count(*),count(distinct PatID) from work._rg_&target;
+        quit;
+        %rg_checkpoint(counting &target);
       %end;
       %else %do;
         data &outlib..&target; set work._rg_&target; run;
@@ -206,8 +211,8 @@
       %abort cancel;
     %end;
   %end;
-  %do k=1 %to 6;
-    %let table=%scan(cohort attrition definition rules code_sets input_manifest,&k);
+  %do k=1 %to 12;
+    %let table=%scan(cohort attrition definition rules code_sets input_manifest covariate_specs diagnostics counts missingness extract_counts cohort_preview,&k);
     %if %sysfunc(exist(&outlib..&table)) or %sysfunc(exist(&outlib..&table,VIEW)) %then %do;
       %put ERROR: &outlib..&table already exists. Use a fresh output library.;
       %abort cancel;
@@ -220,6 +225,25 @@
     stop;
   run;
   %put NOTE: ROGER preflight passed. Required source files and output names were checked.;
+%mend;
+
+%macro rg_covariate(cov_id,domain,table,enc_types,lower,upper,days,key);
+  %rg_events(&cov_id,&domain,&table,&enc_types,
+    lower=%sysfunc(sum(&index_start,&lower)),upper=%sysfunc(sum(&index_end,&upper)));
+  proc sql;
+    create table work._rg_cov_hits as
+    select c.PatID,count(distinct e.event_date) as hit_days
+    from work._rg_cohort c left join work._rg_events e
+      on c.PatID=e.PatID and e.event_date>=c.index_date+&lower
+      and e.event_date<=c.index_date+&upper
+    group by c.PatID;
+    create table work._rg_next as
+    select c.*,coalesce(h.hit_days,0) as cov_&key._days,
+      (calculated cov_&key._days >= &days) as cov_&key
+    from work._rg_cohort c left join work._rg_cov_hits h on c.PatID=h.PatID;
+  quit;
+  data work._rg_cohort; set work._rg_next; run;
+  %rg_checkpoint(covariate &key);
 %mend;
 
 %macro rg_index_stage;
@@ -313,7 +337,8 @@
         into :domain trimmed,:sources trimmed,:enc_types trimmed,:mode trimmed,:days trimmed,:lower trimmed,:upper trimmed
         from work._rg_rules where rule_id=&rid;
     quit;
-    %rg_events(&rid,&domain,&sources,&enc_types);
+    %rg_events(&rid,&domain,&sources,&enc_types,
+      lower=%sysfunc(sum(&index_start,&lower)),upper=%sysfunc(sum(&index_end,&upper)));
     proc sql;
       create table work._rg_hitcounts as
       select c.PatID,count(distinct e.event_date) as hit_days
@@ -346,6 +371,10 @@
 %mend;
 
 %macro rg_delivery_stage;
+  data work._rg_extract_counts;
+    length dataset $32 rows people 8;
+    stop;
+  run;
   %rg_extracts(PREPARE);
   data &outlib..cohort; set work._rg_cohort; run;
   data &outlib..attrition;
@@ -361,12 +390,78 @@
   data &outlib..rules; set work._rg_rules; run;
   data &outlib..code_sets; set work._rg_codes; run;
   data &outlib..input_manifest; set work._rg_manifest; run;
+  data &outlib..covariate_specs; set work._rg_covariates; run;
+  data &outlib..extract_counts; set work._rg_extract_counts; run;
+  data &outlib..cohort_preview;
+    set work._rg_cohort(obs=200 drop=PatID Birth_Date index_encounter);
+    preview_row=_n_;
+  run;
   %rg_checkpoint(audit delivery);
   %rg_extracts(DELIVER);
+  %rg_diagnostics;
   title "ROGER CDM cohort attrition";
   proc print data=&outlib..attrition noobs; run;
   title;
   %put NOTE: ROGER CDM completed. Outputs are in &outlib..;
+%mend;
+
+%macro rg_diagnostics;
+  %local people;
+  proc sql noprint;
+    select count(*) into :people trimmed from work._rg_cohort;
+  quit;
+  proc sql;
+    create table &outlib..diagnostics as
+    select count(*) as people, count(distinct PatID) as distinct_people,
+      min(index_date) format=yymmdd10. as first_index,
+      max(index_date) format=yymmdd10. as last_index,
+      mean(age_at_index) format=8.2 as mean_age,
+      min(age_at_index) as min_age,max(age_at_index) as max_age
+    from work._rg_cohort;
+  quit;
+  data work._rg_count_rows;
+    set work._rg_cohort;
+    length dimension $40 value $64;
+    dimension='Sex'; value=ifc(missing(Sex),'(missing)',strip(Sex)); output;
+    dimension='Index source'; value=ifc(missing(index_source),'(missing)',strip(index_source)); output;
+    dimension='Index month'; value=put(index_date,yymmn6.); output;
+    dimension='Age band'; value=cats(put(floor(age_at_index/10)*10,3.),'s'); output;
+    %rg_covariate_counts;
+    keep dimension value;
+  run;
+  proc sql;
+    create table &outlib..counts as
+    select dimension,value,count(*) as people,
+      %if &people > 0 %then %do; calculated people/&people*100 %end;
+      %else %do; . %end; as percent format=6.2
+    from work._rg_count_rows
+    group by dimension,value
+    order by dimension,people desc,value;
+  quit;
+  data work._rg_missing_rows;
+    set work._rg_cohort;
+    length variable $32 is_missing 8;
+    variable='Sex'; is_missing=missing(Sex); output;
+    variable='Birth_Date'; is_missing=missing(Birth_Date); output;
+    variable='age_at_index'; is_missing=missing(age_at_index); output;
+    variable='index_date'; is_missing=missing(index_date); output;
+    %rg_covariate_missing;
+    keep variable is_missing;
+  run;
+  proc sql;
+    create table &outlib..missingness as
+    select variable,count(*) as total,sum(is_missing) as missing,
+      %if &people > 0 %then %do; calculated missing/&people*100 %end;
+      %else %do; . %end; as percent_missing format=6.2
+    from work._rg_missing_rows group by variable order by variable;
+  quit;
+  %rg_checkpoint(diagnostics);
+  title 'ROGER cohort diagnostics';
+  proc print data=&outlib..diagnostics noobs; run;
+  proc print data=&outlib..counts noobs; run;
+  proc print data=&outlib..missingness noobs; run;
+  proc print data=&outlib..extract_counts noobs; run;
+  title;
 %mend;
 
 %macro rg_stage_report(label);
@@ -413,5 +508,7 @@
   %if &stop_after=ELIGIBILITY %then %return;
   %rg_addon_after_eligibility;
   %rg_stage_integrity(eligibility);
+  %rg_build_covariates;
+  %rg_stage_integrity(covariates);
   %rg_delivery_stage;
 %mend;
