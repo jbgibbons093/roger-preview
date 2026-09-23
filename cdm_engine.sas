@@ -401,6 +401,8 @@
   %rg_diagnostics;
   title "ROGER CDM cohort attrition";
   proc print data=&outlib..attrition noobs; run;
+  title "ROGER final cohort: first 100 selected rows (identifiers omitted)";
+  proc print data=&outlib..cohort_preview(obs=100) noobs; run;
   title;
   %put NOTE: ROGER CDM completed. Outputs are in &outlib..;
 %mend;
@@ -474,6 +476,10 @@
     from work._rg_cohort;
   quit;
   proc print data=work._rg_attrition noobs; run;
+  title "ROGER &label stage: first 100 selected rows (identifiers omitted)";
+  proc print data=work._rg_cohort(obs=100) noobs;
+    var index_date index_source index_code;
+  run;
   title;
 %mend;
 

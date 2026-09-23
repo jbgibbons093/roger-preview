@@ -1,6 +1,6 @@
-import { treeFor, logicText, usesOr } from './logic.js?v=2164d6d6b6fc';
-import { validateDefinition, parseCodes } from './cohort.js?v=2164d6d6b6fc';
-import { isCdm, requiredTables, expandMapping } from './cdm.js?v=2164d6d6b6fc';
+import { treeFor, logicText, usesOr } from './logic.js?v=a55109c8b4fb';
+import { validateDefinition, parseCodes } from './cohort.js?v=a55109c8b4fb';
+import { isCdm, requiredTables, expandMapping } from './cdm.js?v=a55109c8b4fb';
 
 export function selectionProtocol(d,catalog){
   if(isCdm(d))return cdmProtocol(d,catalog);
@@ -68,7 +68,7 @@ function cdmProtocol(d,catalog){
     'Exact matches and trailing-asterisk prefix matches are distinct. Dots and spaces in record codes are removed for matching. Diagnosis and Procedure use their own ADate and EncType, preserving records without a linked Encounter. ICD-9 and ICD-10 use separate code-type values. The supplied v3.0 dictionary labels PX_CodeType=10 as ICD-10-CM. The PCS option uses that procedure slot plus a seven-character PCS format check, a convention to verify against the delivery. MS-DRG uses the recorded character DRG with DRG_Type=2, preserving three digits. The program does not assign a grouper version or recalculate DRGs. Dispensing uses its exact 11-digit NDC and RxDate. Procedure records tagged ND are outside the Dispensing domain.',
     'Bundled diagnosis, PCS, HCPCS, and MS-DRG reference menus cover 2023 releases only. Earlier or later descriptions require a suitable local catalog or manual code entry and year-specific verification. Selecting a reference entry imposes no effective-date filter. Record dates and the explicit study windows govern selection. ICD-11, SNOMED, revenue, and other CDM code types are outside the currently supported event menus.',
     'SAS STAGES AND ADD-ON CODE',
-    `Run through ${d.stopAfter}. Index selection writes WORK._RG_COHORT and reports people and index dates. Eligibility consumes that cohort and reports attrition. Final delivery writes requested outputs. Add-on code after index selection: ${d.afterIndexSas.trim()||'[none]'}`,
+    `Run through ${d.stopAfter}. Index selection writes WORK._RG_COHORT and reports people and index dates. Eligibility consumes that cohort and reports attrition. Both checkpoints print the first 100 selected rows with identifiers omitted. Final delivery writes requested outputs and prints the first 100 rows of COHORT_PREVIEW. Add-on code after index selection: ${d.afterIndexSas.trim()||'[none]'}`,
     `Add-on code after eligibility: ${d.afterEligibilitySas.trim()||'[none]'}. SAS checks that each add-on preserves one row per PatID and nonmissing PatID/index_date. Review custom code and its effects before interpreting counts.`,
     'BASELINE COVARIATES',
     ...(d.covariates?.length?d.covariates.map(r=>`${r.label} (cov_${r.key}). ${catalog.domains[r.domain].label}; source ${r.sources[0]}; index days ${r.from} through ${r.to}, inclusive; flag requires at least ${r.minDays} distinct event day(s). EncType: ${r.domain==='NDC'?'not applicable':r.encTypes.join(', ')}. Codes: ${r.codes}. Each covariate is calculated after eligibility and does not change selection.`):['No code-based covariates selected.']),

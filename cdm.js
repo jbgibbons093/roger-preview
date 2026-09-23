@@ -1,4 +1,4 @@
-import { treeFor, logicText, logicIssues, usesOr } from './logic.js?v=2164d6d6b6fc';
+import { treeFor, logicText, logicIssues, usesOr } from './logic.js?v=a55109c8b4fb';
 
 export const schemaId = 'mini-sentinel-cdm-3.0-v1';
 export const TABLES = ['DEM','DEA','ENR','ENC','DIA','PRO','DIS'];
@@ -256,4 +256,51 @@ export function compileResultsExport(d,settings){
   const workChecks=tables.map(t=>`%if %sysfunc(exist(work.rg_${t})) %then %do; %put ERROR: WORK.RG_${t} already exists. Start a fresh local SAS session.; %abort cancel; %end;`).join('\n');
   const deliveredChecks=tables.map(t=>`%if not %sysfunc(exist(work.rg_${t})) %then %do; %put ERROR: ${t} did not download.; %abort cancel; %end;`).join('\n');
   return `/* Run in a fresh local SAS 9.4 session after the cohort cut. Local CSV files are created only in the selected folder.\n   ROGER never writes into the CDM source or completed server run folder. */\n%macro rg_result_precheck;\n${workChecks}\n%mend;\n%rg_result_precheck;\ndata _null_;\n  if not fileexist(${quote(folder)}) then do; put 'ERROR: Local results folder does not exist.'; abort cancel; end;\n${checks}\nrun;\n%let mynode=${host} ${port};\noptions comamid=tcp;\nfilename rlink ${quote(script)};\nsignon mynode.sasspawn;\nrsubmit;\nlibname RGOUT ${quote(output)} access=readonly;\n${tables.map(t=>`proc download data=RGOUT.${t} out=work.rg_${t}; run;`).join('\n')}\nlibname RGOUT clear;\nendrsubmit;\nsignoff mynode.sasspawn nocscript;\n%macro rg_result_postcheck;\n  %if &syscc > 4 %then %do; %put ERROR: SAS/CONNECT download failed.; %abort cancel; %end;\n${deliveredChecks}\n%mend;\n%rg_result_postcheck;\n${tables.map(t=>`proc export data=work.rg_${t} outfile=${quote(`${folder}\\${t}.csv`)} dbms=csv; run;`).join('\n')}\n`;
+}
+
+export function compilePrintPreview(d,settings){
+  const output=String(d.outputPath||'').trim();
+  if(!/^\/storage\/storage1\/PHShome\/jg093\/[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(output))throw new Error('Choose the completed one-level run folder under jg093.');
+  const host=String(settings.host||'').trim(),port=Number(settings.port),script=String(settings.script||'').trim();
+  if(!/^(?=.{1,253}$)[A-Za-z0-9]+(?:[.-][A-Za-z0-9]+)*$/.test(host)||!Number.isInteger(port)||port<1||port>65535||!(/^[A-Za-z]:\\[^\r\n;]*\.scr$/i.test(script)))throw new Error('Complete the local SAS/CONNECT settings.');
+  const quote=s=>`'${s.replaceAll("'","''")}'`;
+  return `/* ROGER 100-row PROC PRINT preview. Run in a fresh local SAS 9.4 session.
+   The completed server cut is read-only. Only its identifier-free COHORT_PREVIEW
+   is transferred to local WORK; nothing is saved into the CDM or run folder. */
+options errorabend;
+%macro rg_preview_precheck;
+%if %sysfunc(exist(work.rg_print_preview)) %then %do;
+  %put ERROR: WORK.RG_PRINT_PREVIEW already exists. Use a fresh SAS session.;
+  %abort cancel;
+%end;
+%mend;
+%rg_preview_precheck;
+%let mynode=${host} ${port};
+options comamid=tcp;
+filename rlink ${quote(script)};
+signon mynode.sasspawn;
+rsubmit;
+libname RGOUT ${quote(output)} access=readonly;
+%macro rg_preview_remote_check;
+%if not %sysfunc(exist(RGOUT.cohort_preview)) %then %do;
+  %put ERROR: COHORT_PREVIEW was not found in the completed run folder.;
+  %abort cancel;
+%end;
+%mend;
+%rg_preview_remote_check;
+proc download data=RGOUT.cohort_preview out=work.rg_print_preview; run;
+libname RGOUT clear;
+endrsubmit;
+signoff mynode.sasspawn nocscript;
+%macro rg_preview_postcheck;
+%if not %sysfunc(exist(work.rg_print_preview)) %then %do;
+  %put ERROR: The preview did not download.;
+  %abort cancel;
+%end;
+%mend;
+%rg_preview_postcheck;
+title 'ROGER completed cohort: first 100 rows (identifiers omitted)';
+proc print data=work.rg_print_preview(obs=100) noobs; run;
+title;
+`;
 }
