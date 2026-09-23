@@ -315,7 +315,9 @@ run;
 %mend;
 
 %macro roger_cut;
-  %local n_rules rid domain sources mode days lower upper k table ds dt;
+  %local n_rules n_outputs rid domain sources mode days lower upper k table ds dt;
+  %let n_outputs=0;
+  %if %length(%superq(outputs)) %then %let n_outputs=%sysfunc(countw(&outputs));
   %if %sysfunc(libref(&outlib)) ne 0 %then %do;
     %put ERROR: Assign output library &outlib before running ROGER.;
     %abort cancel;
@@ -327,7 +329,7 @@ run;
     %put ERROR: ROGER output tables already exist. Use a fresh output library.;
     %abort cancel;
   %end;
-  %do k=1 %to %sysfunc(countw(&outputs));
+  %do k=1 %to &n_outputs;
     %let table=%scan(&outputs,&k);
     %if %sysfunc(exist(&outlib..cut_&table)) %then %do;
       %put ERROR: ROGER output cut_&table already exists. Use a fresh output library.;
@@ -451,7 +453,7 @@ run;
   %end;
 
   /* Prepare all extracts in WORK before creating the delivery datasets. */
-  %do k=1 %to %sysfunc(countw(&outputs));
+  %do k=1 %to &n_outputs;
     %let table=%scan(&outputs,&k);
     %let ds=&&map_&table;
     %let dt=SVCDATE;
@@ -490,7 +492,7 @@ run;
   data &outlib..definition; set work._rg_definition; run;
   data &outlib..rules; set work._rg_rules; run;
   data &outlib..code_sets; set work._rg_codes; run;
-  %do k=1 %to %sysfunc(countw(&outputs));
+  %do k=1 %to &n_outputs;
     %let table=%scan(&outputs,&k);
     data &outlib..cut_&table; set work._rg_cut_&table; run;
   %end;

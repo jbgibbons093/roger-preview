@@ -1,5 +1,5 @@
 /* ROGER Mini-Sentinel CDM v3.0 engine 1.0. SAS 9.4.
-   Character identifiers are sized from every required input before scanning.
+   Identifier types are checked across every required input before scanning.
    Annual extracts remain separate to preserve each source file's attributes. */
 
 %macro rg_checkpoint(label);
@@ -10,7 +10,7 @@
 %mend;
 
 %macro rg_require(ds, vars, types, extract);
-  %local handle j variable position expected rc width;
+  %local handle j variable position expected observed rc width;
   %let handle=%sysfunc(open(&ds,i));
   %if &handle=0 %then %do;
     %put ERROR: Cannot open &ds.. Check the CDM delivery years and input library.;
@@ -25,13 +25,22 @@
       %put ERROR: Missing CDM field &variable in &ds.. Verify the supplied rollup and dictionary.;
       %abort cancel;
     %end;
-    %if %sysfunc(vartype(&handle,&position)) ne &expected %then %do;
+    %let observed=%sysfunc(vartype(&handle,&position));
+    %if &expected ne A and &observed ne &expected %then %do;
       %let rc=%sysfunc(close(&handle));
-      %put ERROR: Unexpected type for &variable in &ds.. CDM PatID must remain character.;
+      %put ERROR: Unexpected type for &variable in &ds..;
       %abort cancel;
     %end;
     %let width=%sysfunc(varlen(&handle,&position));
-    %if %upcase(&variable)=PATID %then %let patid_length=%sysfunc(max(&patid_length,&width));
+    %if %upcase(&variable)=PATID %then %do;
+      %if %length(%superq(patid_type))=0 %then %let patid_type=&observed;
+      %else %if &patid_type ne &observed %then %do;
+        %let rc=%sysfunc(close(&handle));
+        %put ERROR: PatID type differs across CDM tables at &ds..;
+        %abort cancel;
+      %end;
+      %if &observed=C %then %let patid_length=%sysfunc(max(&patid_length,&width));
+    %end;
     %if %upcase(&variable)=ENCOUNTERID %then %let encounterid_length=%sysfunc(max(&encounterid_length,&width));
   %end;
   %if &extract=1 and %sysfunc(varnum(&handle,index_date)) > 0 %then %do;
@@ -50,7 +59,7 @@
   %rg_checkpoint(attrition);
 %mend;
 
-%macro rg_events(rule_id,domain,table,enc_types);
+%macro rg_events(rule_id,domain,table,enc_types,lower=&data_start,upper=&data_end);
   %local k ds year dt field filter keep;
   %let dt=ADate;
   %let keep=PatID EncounterID ADate EncType;
@@ -80,7 +89,7 @@
     %else %let filter=PX_CodeType='HC';
   %end;
   data work._rg_events;
-    length PatID $&patid_length EncounterID $&encounterid_length
+    length PatID %if &patid_type=C %then %do; $&patid_length %end; %else %do; 8 %end; EncounterID $&encounterid_length
       event_date source_year 8 source $3 source_file $41 code $18;
     stop;
   run;
@@ -88,7 +97,7 @@
     %let ds=%scan(&&files_&table,&k,%str( ));
     %let year=%scan(&&years_&table,&k,%str( ));
     data work._rg_matching;
-      length PatID $&patid_length EncounterID $&encounterid_length
+      length PatID %if &patid_type=C %then %do; $&patid_length %end; %else %do; 8 %end; EncounterID $&encounterid_length
         event_date source_year 8 source $3 source_file $41 code $18
         _value $32767 match_type $6;
       if _n_=1 then do;
@@ -98,7 +107,7 @@
         call missing(code,match_type);
       end;
       set &ds(keep=&keep);
-      where &dt >= &data_start and &dt <= &data_end and (&filter);
+      where &dt >= &lower and &dt <= &upper and (&filter);
       if missing(PatID) or missing(&dt) then delete;
       %if &domain ne NDC %then %do;
         if findw("&enc_types",strip(EncType),' ')=0 then delete;
@@ -174,11 +183,28 @@
   %end;
 %mend;
 
-%macro roger_cdm_cut;
-  %local n_rules rid domain sources enc_types mode days lower upper k table duplicates;
+%macro rg_preflight;
+  %local k table output_overlap;
   %if %sysfunc(libref(&outlib)) ne 0 %then %do;
     %put ERROR: Assign output library &outlib before running ROGER.;
     %abort cancel;
+  %end;
+  %if %upcase(&outlib) ne WORK and %sysfunc(libref(MS))=0 %then %do;
+    %let output_overlap=0;
+    data _null_;
+      length source output $1024;
+      source=lowcase(tranwrd(strip(pathname('MS')),'\','/'));
+      output=lowcase(tranwrd(strip(pathname("&outlib")),'\','/'));
+      source=prxchange('s@/+$@@',1,source);
+      output=prxchange('s@/+$@@',1,output);
+      if not missing(source) and
+        (output=source or substr(output,1,lengthn(source)+1)=cats(source,'/'))
+        then call symputx('output_overlap',1,'L');
+    run;
+    %if &output_overlap %then %do;
+      %put ERROR: Output library overlaps the MS source library. Use a separate output folder.;
+      %abort cancel;
+    %end;
   %end;
   %do k=1 %to 6;
     %let table=%scan(cohort attrition definition rules code_sets input_manifest,&k);
@@ -189,26 +215,20 @@
   %end;
   %rg_extracts(CHECK);
   %rg_check_inputs;
-  proc sql noprint;
-    create table work._rg_duplicate_ids as
-    select PatID from &files_DEM where not missing(PatID) group by PatID having count(*)>1;
-    select count(*) into :duplicates trimmed from work._rg_duplicate_ids;
-  quit;
-  %rg_checkpoint(demographic uniqueness);
-  %if &duplicates > 0 %then %do;
-    %put ERROR: Demographic contains repeated PatID values. Resolve duplicates before selection.;
-    %abort cancel;
-  %end;
   data work._rg_attrition;
     length step remaining 8 criterion $160;
     stop;
   run;
+  %put NOTE: ROGER preflight passed. Required source files and output names were checked.;
+%mend;
+
+%macro rg_index_stage;
+  %local domain sources enc_types;
   proc sql noprint;
     select domain,sources,enc_types into :domain trimmed,:sources trimmed,:enc_types trimmed
       from work._rg_rules where rule_id=1;
-    select count(*) into :n_rules trimmed from work._rg_rules;
   quit;
-  %rg_events(1,&domain,&sources,&enc_types);
+  %rg_events(1,&domain,&sources,&enc_types,lower=&index_start,upper=&index_end);
   proc sort data=work._rg_events(where=(event_date>=&index_start and event_date<=&index_end)) out=work._rg_index;
     by PatID %if &index_order=LAST %then %do; descending %end; event_date source_file EncounterID code;
   run;
@@ -223,10 +243,23 @@
   run;
   %rg_checkpoint(index selection);
   %rg_count(1,&index_order matching index event);
+%mend;
+
+%macro rg_eligibility_stage;
+  %local n_rules rid domain sources enc_types mode days lower upper duplicates;
   proc sql;
     create table work._rg_next as
     select c.*,d.Birth_Date,d.Sex from work._rg_cohort c left join &files_DEM d on c.PatID=d.PatID;
   quit;
+  %rg_checkpoint(demographic join);
+  proc sql noprint;
+    select count(*)-count(distinct PatID) into :duplicates trimmed from work._rg_next;
+  quit;
+  %rg_checkpoint(demographic uniqueness);
+  %if &duplicates > 0 %then %do;
+    %put ERROR: Demographic contains repeated PatID values among index-selected people. Resolve duplicates before selection.;
+    %abort cancel;
+  %end;
   data work._rg_cohort;
     set work._rg_next;
     if missing(Birth_Date) or Birth_Date>index_date then delete;
@@ -271,6 +304,9 @@
     %rg_checkpoint(enrollment eligibility);
     %rg_count(3,Enrollment requirements);
   %end;
+  proc sql noprint;
+    select count(*) into :n_rules trimmed from work._rg_rules;
+  quit;
   %do rid=2 %to &n_rules;
     proc sql noprint;
       select domain,sources,enc_types,mode,min_days,lower_day,upper_day
@@ -307,8 +343,9 @@
     %rg_checkpoint(condition tree);
     %rg_count(%eval(&n_rules+3),Combined AND OR condition tree);
   %end;
+%mend;
 
-
+%macro rg_delivery_stage;
   %rg_extracts(PREPARE);
   data &outlib..cohort; set work._rg_cohort; run;
   data &outlib..attrition;
@@ -330,4 +367,51 @@
   proc print data=&outlib..attrition noobs; run;
   title;
   %put NOTE: ROGER CDM completed. Outputs are in &outlib..;
+%mend;
+
+%macro rg_stage_report(label);
+  %rg_checkpoint(&label stage);
+  title "ROGER &label stage diagnostic";
+  proc sql;
+    select count(*) as people_remaining, count(distinct PatID) as distinct_people,
+      min(index_date) format=yymmdd10. as first_index,
+      max(index_date) format=yymmdd10. as last_index
+    from work._rg_cohort;
+  quit;
+  proc print data=work._rg_attrition noobs; run;
+  title;
+%mend;
+
+%macro rg_stage_integrity(label);
+  %local people distinct_people bad_keys;
+  %if not %sysfunc(exist(work._rg_cohort)) %then %do;
+    %put ERROR: &label add-on removed WORK._RG_COHORT.;
+    %abort cancel;
+  %end;
+  proc sql noprint;
+    select count(*),count(distinct PatID),
+      coalesce(sum(missing(PatID) or missing(index_date)),0)
+      into :people trimmed,:distinct_people trimmed,:bad_keys trimmed
+    from work._rg_cohort;
+  quit;
+  %rg_checkpoint(&label add-on);
+  %if &people ne &distinct_people or &bad_keys > 0 %then %do;
+    %put ERROR: &label add-on must preserve one row per person and nonmissing PatID/index_date.;
+    %abort cancel;
+  %end;
+%mend;
+
+%macro roger_cdm_cut;
+  %rg_preflight;
+  %rg_index_stage;
+  %rg_stage_report(index);
+  %if &stop_after=INDEX %then %return;
+  %rg_addon_after_index;
+  %rg_stage_integrity(index);
+  %rg_eligibility_stage;
+  %rg_stage_report(eligibility);
+  %if &stop_after=ELIGIBILITY %then %return;
+  %rg_addon_after_eligibility;
+  %rg_stage_integrity(eligibility);
+  %rg_delivery_stage;
 %mend;

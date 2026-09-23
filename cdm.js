@@ -7,13 +7,13 @@ export const ENC_TYPES = { AV:'Ambulatory', ED:'Emergency department', IP:'Acute
 export const catalog = {
   id:schemaId, families:{CDM:'Mini-Sentinel CDM'}, dictionaryVersion:'3.0',
   tables:{
-    DEM:{label:'Demographic',pattern:'Demographic_{start}_{end}',date:'Birth_Date',page:9,fields:'PatID Birth_Date Sex',types:'C N C',extract:'All selected people'},
-    DEA:{label:'Death',pattern:'Death_{start}_{end}',date:'DeathDt',page:18,fields:'PatID DeathDt DtImpute Source Confidence',types:'C N C C C',extract:'All recorded deaths for selected people'},
-    ENR:{label:'Enrollment',pattern:'Enrollment_abd_{start}_{end}_rollup',date:'Enr_Start / Enr_End',page:8,fields:'PatID Enr_Start Enr_End MedCov DrugCov',types:'C N N C C',extract:'Intervals overlapping the cut window'},
-    ENC:{label:'Encounter',pattern:'Encounter_{year}',date:'ADate',page:11,fields:'PatID EncounterID ADate EncType DRG DRG_Type',types:'C C N C C C',annual:true,extract:'Selected by encounter/admission date'},
-    DIA:{label:'Diagnosis',pattern:'Diagnosis_{year}',date:'ADate',page:14,fields:'PatID EncounterID ADate EncType DX DX_CodeType',types:'C C N C C C',annual:true,extract:'Selected by encounter/admission date'},
-    PRO:{label:'Procedure',pattern:'Procedure_{year}',date:'ADate',page:16,fields:'PatID EncounterID ADate EncType PX PX_CodeType',types:'C C N C C C',annual:true,extract:'Selected by encounter/admission date'},
-    DIS:{label:'Dispensing',pattern:'Dispensing_{year}',date:'RxDate',page:10,fields:'PatID RxDate NDC',types:'C N C',annual:true,extract:'Selected by dispensing date'}
+    DEM:{label:'Demographic',pattern:'Demographic_{start}_{end}',date:'Birth_Date',page:9,fields:'PatID Birth_Date Sex',types:'A N C',extract:'All selected people'},
+    DEA:{label:'Death',pattern:'Death_{start}_{end}',date:'Death_Date',page:18,fields:'PatID Death_Date',types:'A N',extract:'All recorded deaths for selected people'},
+    ENR:{label:'Enrollment',pattern:'Enrollment_abd_{start}_{end}_rollup',date:'Enr_Start / Enr_End',page:8,fields:'PatID Enr_Start Enr_End MedCov DrugCov',types:'A N N C C',extract:'Intervals overlapping the cut window'},
+    ENC:{label:'Encounter',pattern:'Encounter{year}',date:'ADate',page:11,fields:'PatID EncounterID ADate EncType DRG DRG_Type',types:'A C N C C C',annual:true,extract:'Selected by encounter/admission date'},
+    DIA:{label:'Diagnosis',pattern:'Diagnosis{year}',date:'ADate',page:14,fields:'PatID EncounterID ADate EncType DX DX_CodeType',types:'A C N C C C',annual:true,extract:'Selected by encounter/admission date'},
+    PRO:{label:'Procedure',pattern:'Procedure{year}',date:'ADate',page:16,fields:'PatID EncounterID ADate EncType PX PX_CodeType',types:'A C N C C C',annual:true,extract:'Selected by encounter/admission date'},
+    DIS:{label:'Dispensing',pattern:'Dispensing{year}',date:'RxDate',page:10,fields:'PatID RxDate NDC',types:'A N C',annual:true,extract:'Selected by dispensing date'}
   },
   domains:{
     DX:{label:'Diagnosis · ICD-10-CM',matching:"DX_CodeType='10'"},
@@ -34,7 +34,7 @@ export function freshDefinition(){
     index:{domain:'DX',sources:['DIA'],codes:'',encTypes:Object.keys(ENC_TYPES)},rules:[],
     extractBefore:90,extractAfter:0,outputs:['DEM','DIA','DIS','ENR'],
     mapping:Object.fromEntries(TABLES.map(t=>[t,'MS.'+catalog.tables[t].pattern])),inputPath:'',outputPath:'',
-    indexOrder:'FIRST',logic:null,graph:{positions:{},notes:{}}};
+    indexOrder:'FIRST',stopAfter:'DELIVER',afterIndexSas:'',afterEligibilitySas:'',logic:null,graph:{positions:{},notes:{}}};
 }
 export function expandMapping(d,t){
   const years=catalog.tables[t].annual?Array.from({length:d.yearEnd-d.yearStart+1},(_,i)=>d.yearStart+i):[0];
@@ -46,6 +46,10 @@ const integer=(v,min,max)=>Number.isInteger(v)&&v>=min&&v<=max;
 const date=v=>/^\d{4}-\d{2}-\d{2}$/.test(v)&&Number.isFinite(Date.parse(v))&&new Date(v).toISOString().slice(0,10)===v;
 export function validate(d,parseCodes){
   const errors=logicIssues(treeFor(d),d.rules.length);
+  if(!['INDEX','ELIGIBILITY','DELIVER'].includes(d.stopAfter))errors.push('Choose an index, eligibility, or delivery checkpoint.');
+  for(const key of ['afterIndexSas','afterEligibilitySas']){
+    if(typeof d[key]!=='string'||d[key].length>10000||/[\x00\x1a]/.test(d[key])||/%mend\b|\b(?:rsubmit|endrsubmit)\b/i.test(d[key]))errors.push(`${key} must be SAS code of at most 10,000 characters without a macro or remote-session terminator.`);
+  }
   if(!d.name.trim()||d.name.length>120||/[\x00-\x1f]/.test(d.name))errors.push('Enter a cohort name of 1–120 characters.');
   const yearsValid=integer(d.yearStart,1900,2100)&&integer(d.yearEnd,d.yearStart,2100)&&d.yearEnd-d.yearStart<100;
   if(!yearsValid)errors.push('Enter ordered delivery years from 1900 through 2100, spanning at most 100 years.');
@@ -61,6 +65,11 @@ export function validate(d,parseCodes){
     if(i&&(!integer(r.from,-3650,3650)||!integer(r.to,r.from,3650)||!integer(r.minDays,1,r.to-r.from+1)))errors.push(`${label} needs ordered days from -3650 through 3650 and a feasible distinct-day threshold.`);
   });
   for(const key of ['inputPath','outputPath'])if(/[\x00-\x1f]/.test(d[key])||d[key].length>250)errors.push('Library paths must be single lines of at most 250 characters.');
+  if(d.inputPath&&d.outputPath){
+    const source=d.inputPath.replaceAll('\\','/').replace(/\/+$/,'').toLowerCase();
+    const output=d.outputPath.replaceAll('\\','/').replace(/\/+$/,'').toLowerCase();
+    if(output===source||output.startsWith(`${source}/`))errors.push('The output folder must be outside the input folder.');
+  }
   if(yearsValid){
     for(const t of TABLES){
       if(!d.mapping[t])continue;
@@ -84,12 +93,12 @@ export function compile(d,engine,parseCodes){
   const tables=requiredTables(d),files=tables.flatMap(t=>expandMapping(d,t));
   const rules=[{...d.index,mode:'INDEX',minDays:1,from:0,to:0},...d.rules];
   const tree=treeFor(d);
-  const parameters={age_min:d.ageMin,age_max:d.ageMax,sex:d.sex,enrollment:+d.enrollment,baseline:d.baseline,followup:d.followup,gap:d.gap,rx:+d.rx,extract_before:d.extractBefore,extract_after:d.extractAfter,outputs:d.outputs.join(' '),outlib:d.outputPath?'RGCUT':'WORK',index_order:d.indexOrder,advanced_logic:+usesOr(tree)};
+  const parameters={age_min:d.ageMin,age_max:d.ageMax,sex:d.sex,enrollment:+d.enrollment,baseline:d.baseline,followup:d.followup,gap:d.gap,rx:+d.rx,extract_before:d.extractBefore,extract_after:d.extractAfter,outputs:d.outputs.join(' '),outlib:d.outputPath?'RGCUT':'WORK',index_order:d.indexOrder,advanced_logic:+usesOr(tree),stop_after:d.stopAfter};
   return `/* ROGER Mini-Sentinel CDM v3.0. SAS 9.4.
    Filename conventions supplied by the institution. Delivery years ${d.yearStart}-${d.yearEnd}.
    Confirm the delivery range and mappings before execution.
    Preflight requires the documented CDM fields, including the enrollment rollup.
-   Patient identifiers remain character values. Death never changes enrollment.
+   Patient identifiers retain the source type. Death never changes enrollment.
    This program has not been executed by the browser. WORK._RG_ is reserved.
 */
 options errorabend;
@@ -146,12 +155,59 @@ run;
 
 ${engine}
 
+%macro rg_addon_after_index;
+${d.afterIndexSas.trim()||'  /* No index add-on code. */'}
+%mend;
+%macro rg_addon_after_eligibility;
+${d.afterEligibilitySas.trim()||'  /* No eligibility add-on code. */'}
+%mend;
+
 %macro rg_check_inputs;
-  %global patid_length encounterid_length;
+  %global patid_length patid_type encounterid_length;
   %let patid_length=1;
+  %let patid_type=;
   %let encounterid_length=1;
 ${tables.map(t=>!d.mapping[t]?`  %put ERROR: Supply the ${t} table mapping and regenerate this program.;\n  %abort cancel;`:expandMapping(d,t).map(r=>`  %rg_require(${r.dataset},${catalog.tables[t].fields},${catalog.tables[t].types},${+d.outputs.includes(t)});`).join('\n')).join('\n')}
 %mend;
 %roger_cdm_cut;
+`;
+}
+
+export function compileConnect(d,engine,parseCodes,settings){
+  const issues=validate(d,parseCodes);
+  if(issues.length)throw new Error(issues.join('\n'));
+  const host=String(settings.host||'').trim();
+  const port=Number(settings.port);
+  const script=String(settings.script||'').trim();
+  if(!/^(?=.{1,253}$)[A-Za-z0-9]+(?:[.-][A-Za-z0-9]+)*$/.test(host))throw new Error('Enter the SAS/CONNECT server hostname.');
+  if(!Number.isInteger(port)||port<1||port>65535)throw new Error('Enter a valid SAS/CONNECT port.');
+  if(!/^[A-Za-z]:\\[^\r\n;]*\.scr$/i.test(script))throw new Error('Enter the local SAS link script path.');
+  const output=d.outputPath.trim();
+  const outputMatch=output.match(/^\/storage\/storage1\/PHShome\/jg093\/([A-Za-z][A-Za-z0-9_-]{0,63})$/);
+  if(output&&!outputMatch)throw new Error('For this institutional connection, choose a fresh one-level directory under /storage/storage1/PHShome/jg093.');
+  const body=compile(d,engine,parseCodes);
+  const createOutput=outputMatch?`data _null_;
+  length folder $1024;
+  if fileexist(${q(output)}) then do;
+    put 'ERROR: ROGER output directory already exists. Choose a fresh run name.';
+    abort cancel;
+  end;
+  folder=dcreate(${q(outputMatch[1])},'/storage/storage1/PHShome/jg093');
+  if missing(folder) then do;
+    put 'ERROR: Could not create the ROGER output directory in the authorized home.';
+    abort cancel;
+  end;
+run;
+`:'';
+  return `/* Run this program in local SAS 9.4. SAS/CONNECT executes the CDM cut remotely. */
+%let mynode=${host} ${port};
+options comamid=tcp;
+filename rlink ${q(script)};
+signon mynode.sasspawn;
+rsubmit;
+${createOutput}
+${body}
+endrsubmit;
+signoff mynode;
 `;
 }

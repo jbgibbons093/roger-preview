@@ -1,5 +1,5 @@
 /* SYNTHETIC CDM ACCEPTANCE CHECK. Run in a fresh SAS 9.4 session.
-   No real patient records are included. Expected results have not been run here.
+   No real patient records are included. The assertions below check expected results.
    PASS expects IDs 001 and 0000000000000000000002, counts 8 7 4 2.
    Set fixture_case to MISSING_YEAR, WRONG_PATID, BAD_ROLLUP, or DUP_DEM
    in separate fresh sessions to verify the corresponding preflight abort.
@@ -11,14 +11,14 @@ libname MS "%sysfunc(pathname(work))";
   %if %sysfunc(exist(MS.Demographic_2014_2015)) %then %do; %put ERROR: Fixture input already exists. Use a fresh SAS session.; %abort cancel; %end;
   %if %sysfunc(exist(MS.Death_2014_2015)) %then %do; %put ERROR: Fixture input already exists. Use a fresh SAS session.; %abort cancel; %end;
   %if %sysfunc(exist(MS.Enrollment_abd_2014_2015_rollup)) %then %do; %put ERROR: Fixture input already exists. Use a fresh SAS session.; %abort cancel; %end;
-  %if %sysfunc(exist(MS.Encounter_2014)) %then %do; %put ERROR: Fixture input already exists. Use a fresh SAS session.; %abort cancel; %end;
-  %if %sysfunc(exist(MS.Encounter_2015)) %then %do; %put ERROR: Fixture input already exists. Use a fresh SAS session.; %abort cancel; %end;
-  %if %sysfunc(exist(MS.Diagnosis_2014)) %then %do; %put ERROR: Fixture input already exists. Use a fresh SAS session.; %abort cancel; %end;
-  %if %sysfunc(exist(MS.Diagnosis_2015)) %then %do; %put ERROR: Fixture input already exists. Use a fresh SAS session.; %abort cancel; %end;
-  %if %sysfunc(exist(MS.Procedure_2014)) %then %do; %put ERROR: Fixture input already exists. Use a fresh SAS session.; %abort cancel; %end;
-  %if %sysfunc(exist(MS.Procedure_2015)) %then %do; %put ERROR: Fixture input already exists. Use a fresh SAS session.; %abort cancel; %end;
-  %if %sysfunc(exist(MS.Dispensing_2014)) %then %do; %put ERROR: Fixture input already exists. Use a fresh SAS session.; %abort cancel; %end;
-  %if %sysfunc(exist(MS.Dispensing_2015)) %then %do; %put ERROR: Fixture input already exists. Use a fresh SAS session.; %abort cancel; %end;
+  %if %sysfunc(exist(MS.Encounter2014)) %then %do; %put ERROR: Fixture input already exists. Use a fresh SAS session.; %abort cancel; %end;
+  %if %sysfunc(exist(MS.Encounter2015)) %then %do; %put ERROR: Fixture input already exists. Use a fresh SAS session.; %abort cancel; %end;
+  %if %sysfunc(exist(MS.Diagnosis2014)) %then %do; %put ERROR: Fixture input already exists. Use a fresh SAS session.; %abort cancel; %end;
+  %if %sysfunc(exist(MS.Diagnosis2015)) %then %do; %put ERROR: Fixture input already exists. Use a fresh SAS session.; %abort cancel; %end;
+  %if %sysfunc(exist(MS.Procedure2014)) %then %do; %put ERROR: Fixture input already exists. Use a fresh SAS session.; %abort cancel; %end;
+  %if %sysfunc(exist(MS.Procedure2015)) %then %do; %put ERROR: Fixture input already exists. Use a fresh SAS session.; %abort cancel; %end;
+  %if %sysfunc(exist(MS.Dispensing2014)) %then %do; %put ERROR: Fixture input already exists. Use a fresh SAS session.; %abort cancel; %end;
+  %if %sysfunc(exist(MS.Dispensing2015)) %then %do; %put ERROR: Fixture input already exists. Use a fresh SAS session.; %abort cancel; %end;
 %mend;
 %fixture_guard;
 data MS.Demographic_2014_2015;
@@ -52,14 +52,14 @@ datalines4;
 ;;;;
 run;
 data MS.Death_2014_2015;
-  length PatID $64 DeathDt 8 DtImpute Source Confidence $1;
+  length PatID $64 Death_Date 8 DtImpute Source Confidence $1;
   infile datalines4 dlm='|' dsd truncover;
-  input PatID :$64. DeathDt :date9. DtImpute :$1. Source :$1. Confidence :$1.;
+  input PatID :$64. Death_Date :date9. DtImpute :$1. Source :$1. Confidence :$1.;
 datalines4;
 001|01DEC2015|N|S|E
 ;;;;
 run;
-data MS.Diagnosis_2014;
+data MS.Diagnosis2014;
   length PatID $40 EncounterID $20 ADate 8 EncType $2 DX $18 DX_CodeType $2 ExtraText $8;
   infile datalines4 dlm='|' dsd truncover;
   input PatID :$60. EncounterID :$20. ADate :date9. EncType :$2. DX :$18. DX_CodeType :$2.;
@@ -75,10 +75,10 @@ datalines4;
 001|orphan|01DEC2014|AV|250.00|09
 ;;;;
 run;
-data MS.Procedure_2014; length PatID $64 EncounterID $20 ADate 8 EncType $2 PX $11 PX_CodeType $2; stop; run;
-data MS.Dispensing_2014; length PatID $64 RxDate 8 NDC $11; stop; run;
-data MS.Encounter_2014; length PatID $64 EncounterID $20 ADate 8 EncType $2 DRG $3 DRG_Type $1; stop; run;
-data MS.Diagnosis_2015;
+data MS.Procedure2014; length PatID $64 EncounterID $20 ADate 8 EncType $2 PX $11 PX_CodeType $2; stop; run;
+data MS.Dispensing2014; length PatID $64 RxDate 8 NDC $11; stop; run;
+data MS.Encounter2014; length PatID $64 EncounterID $20 ADate 8 EncType $2 DRG $3 DRG_Type $1; stop; run;
+data MS.Diagnosis2015;
   length PatID $60 EncounterID $20 ADate 8 EncType $2 DX $18 DX_CodeType $2 ExtraText $100;
   infile datalines4 dlm='|' dsd truncover;
   input PatID :$60. EncounterID :$20. ADate :date9. EncType :$2. DX :$18. DX_CodeType :$2.;
@@ -110,7 +110,7 @@ datalines4;
 001|orphan|01SEP2015|AV|250.00|09
 ;;;;
 run;
-data MS.Procedure_2015;
+data MS.Procedure2015;
   length PatID $64 EncounterID $20 ADate 8 EncType $2 PX $11 PX_CodeType $2;
   infile datalines4 dlm='|' dsd truncover;
   input PatID :$64. EncounterID :$20. ADate :date9. EncType :$2. PX :$11. PX_CodeType :$2.;
@@ -124,7 +124,7 @@ datalines4;
 001|ndc-proc|02OCT2015|AV|00000000001|ND
 ;;;;
 run;
-data MS.Dispensing_2015;
+data MS.Dispensing2015;
   length PatID $64 RxDate 8 NDC $11;
   infile datalines4 dlm='|' dsd truncover;
   input PatID :$64. RxDate :date9. NDC :$11.;
@@ -132,7 +132,7 @@ datalines4;
 1|01OCT2015|00000000001
 ;;;;
 run;
-data MS.Encounter_2015;
+data MS.Encounter2015;
   length PatID $64 EncounterID $20 ADate 8 EncType $2 DRG $3 DRG_Type $1;
   infile datalines4 dlm='|' dsd truncover;
   input PatID :$64. EncounterID :$20. ADate :date9. EncType :$2. DRG :$3. DRG_Type :$1.;
@@ -142,9 +142,9 @@ datalines4;
 ;;;;
 run;
 %macro negative_case;
-  %if &fixture_case=MISSING_YEAR %then %do; proc datasets lib=MS nolist; delete Diagnosis_2014; quit; %end;
+  %if &fixture_case=MISSING_YEAR %then %do; proc datasets lib=MS nolist; delete Diagnosis2014; quit; %end;
   %if &fixture_case=WRONG_PATID %then %do;
-    data MS.Diagnosis_2014; set MS.Diagnosis_2014(rename=(PatID=old_id)); PatID=input(old_id,32.); drop old_id; run;
+    data MS.Diagnosis2014; set MS.Diagnosis2014(rename=(PatID=old_id)); PatID=input(old_id,32.); drop old_id; run;
   %end;
   %if &fixture_case=BAD_ROLLUP %then %do;
     data MS.Enrollment_abd_2014_2015_rollup; set MS.Enrollment_abd_2014_2015_rollup; drop MedCov; run;
@@ -159,7 +159,7 @@ run;
    Filename conventions supplied by the institution. Delivery years 2014-2015.
    Confirm the delivery range and mappings before execution.
    Preflight requires the documented CDM fields, including the enrollment rollup.
-   Patient identifiers remain character values. Death never changes enrollment.
+   Patient identifiers retain the source type. Death never changes enrollment.
    This program has not been executed by the browser. WORK._RG_ is reserved.
 */
 options errorabend;
@@ -179,6 +179,7 @@ options errorabend;
 %let outlib=WORK;
 %let index_order=LAST;
 %let advanced_logic=1;
+%let stop_after=DELIVER;
 %let index_start=%sysfunc(inputn(20151001,yymmdd8.));
 %let index_end=%sysfunc(inputn(20151015,yymmdd8.));
 %let data_start='01JAN2014'd;
@@ -189,13 +190,13 @@ options errorabend;
 %let years_DEA=0;
 %let files_ENR=MS.Enrollment_abd_2014_2015_rollup;
 %let years_ENR=0;
-%let files_ENC=MS.Encounter_2014 MS.Encounter_2015;
+%let files_ENC=MS.Encounter2014 MS.Encounter2015;
 %let years_ENC=2014 2015;
-%let files_DIA=MS.Diagnosis_2014 MS.Diagnosis_2015;
+%let files_DIA=MS.Diagnosis2014 MS.Diagnosis2015;
 %let years_DIA=2014 2015;
-%let files_PRO=MS.Procedure_2014 MS.Procedure_2015;
+%let files_PRO=MS.Procedure2014 MS.Procedure2015;
 %let years_PRO=2014 2015;
-%let files_DIS=MS.Dispensing_2014 MS.Dispensing_2015;
+%let files_DIS=MS.Dispensing2014 MS.Dispensing2015;
 %let years_DIS=2014 2015;
 
 data work._rg_definition;
@@ -220,6 +221,7 @@ data work._rg_definition;
   outlib='WORK';
   index_order='LAST';
   advanced_logic=1;
+  stop_after='DELIVER';
 run;
 data work._rg_rules;
   length rule_id min_days lower_day upper_day 8 mode $7 domain $5 sources $3 enc_types $14;
@@ -254,14 +256,14 @@ datalines4;
 DEM|MS.Demographic_2014_2015|.
 DEA|MS.Death_2014_2015|.
 ENR|MS.Enrollment_abd_2014_2015_rollup|.
-ENC|MS.Encounter_2014|2014
-ENC|MS.Encounter_2015|2015
-DIA|MS.Diagnosis_2014|2014
-DIA|MS.Diagnosis_2015|2015
-PRO|MS.Procedure_2014|2014
-PRO|MS.Procedure_2015|2015
-DIS|MS.Dispensing_2014|2014
-DIS|MS.Dispensing_2015|2015
+ENC|MS.Encounter2014|2014
+ENC|MS.Encounter2015|2015
+DIA|MS.Diagnosis2014|2014
+DIA|MS.Diagnosis2015|2015
+PRO|MS.Procedure2014|2014
+PRO|MS.Procedure2015|2015
+DIS|MS.Dispensing2014|2014
+DIS|MS.Dispensing2015|2015
 ;;;;
 run;
 %macro rg_apply_logic;
@@ -273,7 +275,7 @@ run;
 %mend;
 
 /* ROGER Mini-Sentinel CDM v3.0 engine 1.0. SAS 9.4.
-   Character identifiers are sized from every required input before scanning.
+   Identifier types are checked across every required input before scanning.
    Annual extracts remain separate to preserve each source file's attributes. */
 
 %macro rg_checkpoint(label);
@@ -284,7 +286,7 @@ run;
 %mend;
 
 %macro rg_require(ds, vars, types, extract);
-  %local handle j variable position expected rc width;
+  %local handle j variable position expected observed rc width;
   %let handle=%sysfunc(open(&ds,i));
   %if &handle=0 %then %do;
     %put ERROR: Cannot open &ds.. Check the CDM delivery years and input library.;
@@ -299,13 +301,22 @@ run;
       %put ERROR: Missing CDM field &variable in &ds.. Verify the supplied rollup and dictionary.;
       %abort cancel;
     %end;
-    %if %sysfunc(vartype(&handle,&position)) ne &expected %then %do;
+    %let observed=%sysfunc(vartype(&handle,&position));
+    %if &expected ne A and &observed ne &expected %then %do;
       %let rc=%sysfunc(close(&handle));
-      %put ERROR: Unexpected type for &variable in &ds.. CDM PatID must remain character.;
+      %put ERROR: Unexpected type for &variable in &ds..;
       %abort cancel;
     %end;
     %let width=%sysfunc(varlen(&handle,&position));
-    %if %upcase(&variable)=PATID %then %let patid_length=%sysfunc(max(&patid_length,&width));
+    %if %upcase(&variable)=PATID %then %do;
+      %if %length(%superq(patid_type))=0 %then %let patid_type=&observed;
+      %else %if &patid_type ne &observed %then %do;
+        %let rc=%sysfunc(close(&handle));
+        %put ERROR: PatID type differs across CDM tables at &ds..;
+        %abort cancel;
+      %end;
+      %if &observed=C %then %let patid_length=%sysfunc(max(&patid_length,&width));
+    %end;
     %if %upcase(&variable)=ENCOUNTERID %then %let encounterid_length=%sysfunc(max(&encounterid_length,&width));
   %end;
   %if &extract=1 and %sysfunc(varnum(&handle,index_date)) > 0 %then %do;
@@ -324,7 +335,7 @@ run;
   %rg_checkpoint(attrition);
 %mend;
 
-%macro rg_events(rule_id,domain,table,enc_types);
+%macro rg_events(rule_id,domain,table,enc_types,lower=&data_start,upper=&data_end);
   %local k ds year dt field filter keep;
   %let dt=ADate;
   %let keep=PatID EncounterID ADate EncType;
@@ -354,7 +365,7 @@ run;
     %else %let filter=PX_CodeType='HC';
   %end;
   data work._rg_events;
-    length PatID $&patid_length EncounterID $&encounterid_length
+    length PatID %if &patid_type=C %then %do; $&patid_length %end; %else %do; 8 %end; EncounterID $&encounterid_length
       event_date source_year 8 source $3 source_file $41 code $18;
     stop;
   run;
@@ -362,7 +373,7 @@ run;
     %let ds=%scan(&&files_&table,&k,%str( ));
     %let year=%scan(&&years_&table,&k,%str( ));
     data work._rg_matching;
-      length PatID $&patid_length EncounterID $&encounterid_length
+      length PatID %if &patid_type=C %then %do; $&patid_length %end; %else %do; 8 %end; EncounterID $&encounterid_length
         event_date source_year 8 source $3 source_file $41 code $18
         _value $32767 match_type $6;
       if _n_=1 then do;
@@ -372,7 +383,7 @@ run;
         call missing(code,match_type);
       end;
       set &ds(keep=&keep);
-      where &dt >= &data_start and &dt <= &data_end and (&filter);
+      where &dt >= &lower and &dt <= &upper and (&filter);
       if missing(PatID) or missing(&dt) then delete;
       %if &domain ne NDC %then %do;
         if findw("&enc_types",strip(EncType),' ')=0 then delete;
@@ -448,11 +459,28 @@ run;
   %end;
 %mend;
 
-%macro roger_cdm_cut;
-  %local n_rules rid domain sources enc_types mode days lower upper k table duplicates;
+%macro rg_preflight;
+  %local k table output_overlap;
   %if %sysfunc(libref(&outlib)) ne 0 %then %do;
     %put ERROR: Assign output library &outlib before running ROGER.;
     %abort cancel;
+  %end;
+  %if %upcase(&outlib) ne WORK and %sysfunc(libref(MS))=0 %then %do;
+    %let output_overlap=0;
+    data _null_;
+      length source output $1024;
+      source=lowcase(tranwrd(strip(pathname('MS')),'\','/'));
+      output=lowcase(tranwrd(strip(pathname("&outlib")),'\','/'));
+      source=prxchange('s@/+$@@',1,source);
+      output=prxchange('s@/+$@@',1,output);
+      if not missing(source) and
+        (output=source or substr(output,1,lengthn(source)+1)=cats(source,'/'))
+        then call symputx('output_overlap',1,'L');
+    run;
+    %if &output_overlap %then %do;
+      %put ERROR: Output library overlaps the MS source library. Use a separate output folder.;
+      %abort cancel;
+    %end;
   %end;
   %do k=1 %to 6;
     %let table=%scan(cohort attrition definition rules code_sets input_manifest,&k);
@@ -463,26 +491,20 @@ run;
   %end;
   %rg_extracts(CHECK);
   %rg_check_inputs;
-  proc sql noprint;
-    create table work._rg_duplicate_ids as
-    select PatID from &files_DEM where not missing(PatID) group by PatID having count(*)>1;
-    select count(*) into :duplicates trimmed from work._rg_duplicate_ids;
-  quit;
-  %rg_checkpoint(demographic uniqueness);
-  %if &duplicates > 0 %then %do;
-    %put ERROR: Demographic contains repeated PatID values. Resolve duplicates before selection.;
-    %abort cancel;
-  %end;
   data work._rg_attrition;
     length step remaining 8 criterion $160;
     stop;
   run;
+  %put NOTE: ROGER preflight passed. Required source files and output names were checked.;
+%mend;
+
+%macro rg_index_stage;
+  %local domain sources enc_types;
   proc sql noprint;
     select domain,sources,enc_types into :domain trimmed,:sources trimmed,:enc_types trimmed
       from work._rg_rules where rule_id=1;
-    select count(*) into :n_rules trimmed from work._rg_rules;
   quit;
-  %rg_events(1,&domain,&sources,&enc_types);
+  %rg_events(1,&domain,&sources,&enc_types,lower=&index_start,upper=&index_end);
   proc sort data=work._rg_events(where=(event_date>=&index_start and event_date<=&index_end)) out=work._rg_index;
     by PatID %if &index_order=LAST %then %do; descending %end; event_date source_file EncounterID code;
   run;
@@ -497,10 +519,23 @@ run;
   run;
   %rg_checkpoint(index selection);
   %rg_count(1,&index_order matching index event);
+%mend;
+
+%macro rg_eligibility_stage;
+  %local n_rules rid domain sources enc_types mode days lower upper duplicates;
   proc sql;
     create table work._rg_next as
     select c.*,d.Birth_Date,d.Sex from work._rg_cohort c left join &files_DEM d on c.PatID=d.PatID;
   quit;
+  %rg_checkpoint(demographic join);
+  proc sql noprint;
+    select count(*)-count(distinct PatID) into :duplicates trimmed from work._rg_next;
+  quit;
+  %rg_checkpoint(demographic uniqueness);
+  %if &duplicates > 0 %then %do;
+    %put ERROR: Demographic contains repeated PatID values among index-selected people. Resolve duplicates before selection.;
+    %abort cancel;
+  %end;
   data work._rg_cohort;
     set work._rg_next;
     if missing(Birth_Date) or Birth_Date>index_date then delete;
@@ -545,6 +580,9 @@ run;
     %rg_checkpoint(enrollment eligibility);
     %rg_count(3,Enrollment requirements);
   %end;
+  proc sql noprint;
+    select count(*) into :n_rules trimmed from work._rg_rules;
+  quit;
   %do rid=2 %to &n_rules;
     proc sql noprint;
       select domain,sources,enc_types,mode,min_days,lower_day,upper_day
@@ -581,8 +619,9 @@ run;
     %rg_checkpoint(condition tree);
     %rg_count(%eval(&n_rules+3),Combined AND OR condition tree);
   %end;
+%mend;
 
-
+%macro rg_delivery_stage;
   %rg_extracts(PREPARE);
   data &outlib..cohort; set work._rg_cohort; run;
   data &outlib..attrition;
@@ -606,22 +645,77 @@ run;
   %put NOTE: ROGER CDM completed. Outputs are in &outlib..;
 %mend;
 
+%macro rg_stage_report(label);
+  %rg_checkpoint(&label stage);
+  title "ROGER &label stage diagnostic";
+  proc sql;
+    select count(*) as people_remaining, count(distinct PatID) as distinct_people,
+      min(index_date) format=yymmdd10. as first_index,
+      max(index_date) format=yymmdd10. as last_index
+    from work._rg_cohort;
+  quit;
+  proc print data=work._rg_attrition noobs; run;
+  title;
+%mend;
+
+%macro rg_stage_integrity(label);
+  %local people distinct_people bad_keys;
+  %if not %sysfunc(exist(work._rg_cohort)) %then %do;
+    %put ERROR: &label add-on removed WORK._RG_COHORT.;
+    %abort cancel;
+  %end;
+  proc sql noprint;
+    select count(*),count(distinct PatID),
+      coalesce(sum(missing(PatID) or missing(index_date)),0)
+      into :people trimmed,:distinct_people trimmed,:bad_keys trimmed
+    from work._rg_cohort;
+  quit;
+  %rg_checkpoint(&label add-on);
+  %if &people ne &distinct_people or &bad_keys > 0 %then %do;
+    %put ERROR: &label add-on must preserve one row per person and nonmissing PatID/index_date.;
+    %abort cancel;
+  %end;
+%mend;
+
+%macro roger_cdm_cut;
+  %rg_preflight;
+  %rg_index_stage;
+  %rg_stage_report(index);
+  %if &stop_after=INDEX %then %return;
+  %rg_addon_after_index;
+  %rg_stage_integrity(index);
+  %rg_eligibility_stage;
+  %rg_stage_report(eligibility);
+  %if &stop_after=ELIGIBILITY %then %return;
+  %rg_addon_after_eligibility;
+  %rg_stage_integrity(eligibility);
+  %rg_delivery_stage;
+%mend;
+
+
+%macro rg_addon_after_index;
+  /* No index add-on code. */
+%mend;
+%macro rg_addon_after_eligibility;
+  /* No eligibility add-on code. */
+%mend;
 
 %macro rg_check_inputs;
-  %global patid_length encounterid_length;
+  %global patid_length patid_type encounterid_length;
   %let patid_length=1;
+  %let patid_type=;
   %let encounterid_length=1;
-  %rg_require(MS.Demographic_2014_2015,PatID Birth_Date Sex,C N C,1);
-  %rg_require(MS.Death_2014_2015,PatID DeathDt DtImpute Source Confidence,C N C C C,1);
-  %rg_require(MS.Enrollment_abd_2014_2015_rollup,PatID Enr_Start Enr_End MedCov DrugCov,C N N C C,1);
-  %rg_require(MS.Encounter_2014,PatID EncounterID ADate EncType DRG DRG_Type,C C N C C C,1);
-  %rg_require(MS.Encounter_2015,PatID EncounterID ADate EncType DRG DRG_Type,C C N C C C,1);
-  %rg_require(MS.Diagnosis_2014,PatID EncounterID ADate EncType DX DX_CodeType,C C N C C C,1);
-  %rg_require(MS.Diagnosis_2015,PatID EncounterID ADate EncType DX DX_CodeType,C C N C C C,1);
-  %rg_require(MS.Procedure_2014,PatID EncounterID ADate EncType PX PX_CodeType,C C N C C C,1);
-  %rg_require(MS.Procedure_2015,PatID EncounterID ADate EncType PX PX_CodeType,C C N C C C,1);
-  %rg_require(MS.Dispensing_2014,PatID RxDate NDC,C N C,1);
-  %rg_require(MS.Dispensing_2015,PatID RxDate NDC,C N C,1);
+  %rg_require(MS.Demographic_2014_2015,PatID Birth_Date Sex,A N C,1);
+  %rg_require(MS.Death_2014_2015,PatID Death_Date,A N,1);
+  %rg_require(MS.Enrollment_abd_2014_2015_rollup,PatID Enr_Start Enr_End MedCov DrugCov,A N N C C,1);
+  %rg_require(MS.Encounter2014,PatID EncounterID ADate EncType DRG DRG_Type,A C N C C C,1);
+  %rg_require(MS.Encounter2015,PatID EncounterID ADate EncType DRG DRG_Type,A C N C C C,1);
+  %rg_require(MS.Diagnosis2014,PatID EncounterID ADate EncType DX DX_CodeType,A C N C C C,1);
+  %rg_require(MS.Diagnosis2015,PatID EncounterID ADate EncType DX DX_CodeType,A C N C C C,1);
+  %rg_require(MS.Procedure2014,PatID EncounterID ADate EncType PX PX_CodeType,A C N C C C,1);
+  %rg_require(MS.Procedure2015,PatID EncounterID ADate EncType PX PX_CodeType,A C N C C C,1);
+  %rg_require(MS.Dispensing2014,PatID RxDate NDC,A N C,1);
+  %rg_require(MS.Dispensing2015,PatID RxDate NDC,A N C,1);
 %mend;
 %roger_cdm_cut;
 

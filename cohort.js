@@ -41,11 +41,11 @@ export function readDefinition(candidate) {
   const tables = cdm.isCdm(candidate) ? cdm.TABLES : TABLES;
   const domains = cdm.isCdm(candidate) ? cdm.DOMAINS : DOMAINS;
   // Older definitions use the original first-index, all-AND semantics.
-  candidate={indexOrder:'FIRST',logic:null,graph:{positions:{},notes:{}},...candidate};
+  candidate={indexOrder:'FIRST',logic:null,graph:{positions:{},notes:{}},...(cdm.isCdm(candidate)?{stopAfter:'DELIVER',afterIndexSas:'',afterEligibilitySas:''}:{}),...candidate};
   if (candidate.schemaId !== base.schemaId) throw new Error('This definition requires a different year or schema version.');
   for (const [key, value] of Object.entries(base)) {
     if (!Object.hasOwn(candidate, key)) throw new Error(`Missing definition field ${key}.`);
-    if (typeof value === 'string' && (typeof candidate[key] !== 'string' || candidate[key].length > 1000)) throw new Error(`Invalid text field ${key}.`);
+    if (typeof value === 'string' && (typeof candidate[key] !== 'string' || candidate[key].length > (key.endsWith('Sas')?10000:1000))) throw new Error(`Invalid text field ${key}.`);
     if (typeof value === 'number' && candidate[key] !== null && !Number.isFinite(candidate[key])) throw new Error(`Invalid numeric field ${key}.`);
     if (typeof value === 'boolean' && typeof candidate[key] !== 'boolean') throw new Error(`Invalid option ${key}.`);
   }
