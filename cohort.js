@@ -1,5 +1,5 @@
-import * as cdm from './cdm.js?v=d8068fd47f0c';
-import { treeFor, logicIssues, logicText, usesOr } from './logic.js?v=d8068fd47f0c';
+import * as cdm from './cdm.js?v=d6e53643d0f2';
+import { treeFor, logicIssues, logicText, usesOr } from './logic.js?v=d6e53643d0f2';
 export const TABLES = ['O', 'S', 'I', 'F', 'D', 'T'];
 export const DOMAINS = { DX: ['O', 'S', 'I', 'F'], PCS: ['I', 'S', 'O'], CPT: ['O', 'S'], HCPCS: ['O', 'S'], DRG: ['I', 'S'], NDC: ['D'] };
 export const schemaId = 'marketscan-ccae-mdcr-2023-v1';
@@ -64,7 +64,7 @@ export function readDefinition(candidate) {
     const values=candidate.graph[kind];
     if(!values||typeof values!=='object'||Array.isArray(values)||Object.keys(values).length>70)throw new Error('Invalid graph metadata.');
     for(const [key,value] of Object.entries(values)){
-      if(!/^(population|index|demographics|enrollment|output|r\d{1,2}|g\d{1,3})$/.test(key))throw new Error('Invalid graph node.');
+      if(!/^(population|index|demographics|enrollment|covariates|output|r\d{1,2}|g\d{1,3})$/.test(key))throw new Error('Invalid graph node.');
       if(kind==='notes'?(typeof value!=='string'||value.length>4000):(!value||!['x','y'].every(axis=>Number.isFinite(value[axis])&&value[axis]>=0&&value[axis]<=20000)))throw new Error('Invalid node note or position.');
     }
   }
