@@ -1,6 +1,6 @@
-import { treeFor, logicText, usesOr } from './logic.js';
-import { validateDefinition, parseCodes } from './cohort.js';
-import { isCdm, requiredTables, expandMapping } from './cdm.js';
+import { treeFor, logicText, usesOr } from './logic.js?v=6a6eb270afc6';
+import { validateDefinition, parseCodes } from './cohort.js?v=6a6eb270afc6';
+import { isCdm, requiredTables, expandMapping } from './cdm.js?v=6a6eb270afc6';
 
 export function selectionProtocol(d,catalog){
   if(isCdm(d))return cdmProtocol(d,catalog);

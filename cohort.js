@@ -1,5 +1,5 @@
-import * as cdm from './cdm.js';
-import { treeFor, logicIssues, logicText, usesOr } from './logic.js';
+import * as cdm from './cdm.js?v=6a6eb270afc6';
+import { treeFor, logicIssues, logicText, usesOr } from './logic.js?v=6a6eb270afc6';
 export const TABLES = ['O', 'S', 'I', 'F', 'D', 'T'];
 export const DOMAINS = { DX: ['O', 'S', 'I', 'F'], PCS: ['I', 'S', 'O'], CPT: ['O', 'S'], HCPCS: ['O', 'S'], DRG: ['I', 'S'], NDC: ['D'] };
 export const schemaId = 'marketscan-ccae-mdcr-2023-v1';

@@ -1,4 +1,4 @@
-import { treeFor, logicText, logicIssues, usesOr } from './logic.js';
+import { treeFor, logicText, logicIssues, usesOr } from './logic.js?v=6a6eb270afc6';
 
 export const schemaId = 'mini-sentinel-cdm-3.0-v1';
 export const TABLES = ['DEM','DEA','ENR','ENC','DIA','PRO','DIS'];
