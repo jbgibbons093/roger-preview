@@ -1,5 +1,5 @@
-import { isCdm, DOMAINS as CDM_DOMAINS, ENC_TYPES } from './cdm.js?v=2509125a2d4b';
-import { treeFor, groupsIn, logicText, moveCondition } from './logic.js?v=2509125a2d4b';
+import { isCdm, DOMAINS as CDM_DOMAINS, ENC_TYPES } from './cdm.js?v=9ddc8a65f727';
+import { treeFor, groupsIn, logicText, moveCondition } from './logic.js?v=9ddc8a65f727';
 
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const WIDTH=210, HEIGHT=166;
@@ -173,7 +173,11 @@ export function bindTree(container,d,catalog,{changed,refresh,addRule,removeRule
         const cov=d.covariates[Number(el.dataset.treeIndex)];cov.sources=CDM_DOMAINS[cov.domain].slice();cov.codes='';cov.encTypes=cov.domain==='NDC'?[]:Object.keys(ENC_TYPES);
       }
       if(el.dataset.treeModel==='cohort'&&['family','edition'].includes(el.dataset.treeKey))d.mapping=Object.fromEntries(Object.keys(catalog.tables).map(table=>[table,'']));
-      redraw();return;
+      // Text, date, and number fields are already reflected on input. Rebuilding
+      // the tree on blur can remove the Save button before its click is delivered.
+      if(el.matches('select, input[type="checkbox"]'))redraw();
+      else editValue(el);
+      return;
     }
   });
   container.addEventListener('input',e=>{
