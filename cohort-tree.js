@@ -1,9 +1,23 @@
-import { isCdm, DOMAINS as CDM_DOMAINS, ENC_TYPES } from './cdm.js?v=d6e53643d0f2';
-import { treeFor, groupsIn, logicText, moveCondition } from './logic.js?v=d6e53643d0f2';
+import { isCdm, DOMAINS as CDM_DOMAINS, ENC_TYPES } from './cdm.js?v=2509125a2d4b';
+import { treeFor, groupsIn, logicText, moveCondition } from './logic.js?v=2509125a2d4b';
 
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const WIDTH=210, HEIGHT=166;
 let selected='index', zoom=0.85, expanded=false;
+
+export function issueNode(issue){
+  const text=String(issue);
+  const rule=text.match(/^Criterion (\d+)\b/i);
+  if(rule)return `r${Number(rule[1])-1}`;
+  if(/\bcovariate\b|baseline covariates/i.test(text))return 'covariates';
+  if(/afterIndex|afterEligibility|stopAfter/i.test(text))return 'output';
+  if(/\bage\b|\bsex\b|demographic/i.test(text))return 'demographics';
+  if(/\bindex\b|date range/i.test(text))return 'index';
+  if(/enrollment|coverage|pharmacy|\bbaseline\b|\bfollowup\b|\bgap\b/i.test(text))return 'enrollment';
+  if(/output|extract|mapping|\btable\b|library|folder|checkpoint|afterIndex|afterEligibility|stopAfter/i.test(text))return 'output';
+  if(/logic|group|condition|criterion/i.test(text))return 'g0';
+  return 'population';
+}
 
 function graphModel(d,catalog){
   const tree=treeFor(d), nodes=[],edges=[];
@@ -46,8 +60,8 @@ function edgePaths(model){
 export function renderTree(d,catalog,showExport=false,issueCount=0){
   const model=graphModel(d,catalog);
   if(!model.nodes.some(n=>n.id===selected))selected='index';
-  return `<section class="tree-workspace panel ${expanded?'expanded':''}"><div class="tree-toolbar"><div><h2>Cohort design canvas</h2><p class="hint">Select a card to edit its criteria here. Drag a header to arrange cards or a Link handle onto a group to change logic.</p><p class="tree-validation" role="status">${issueCount?`${issueCount} definition item${issueCount===1?'':'s'} need attention`:'Definition ready to save'}</p></div><div class="tree-actions"><button class="button small" data-tree="add-rule">+ Condition</button><button class="button small" data-tree="add-and">+ AND group</button><button class="button small" data-tree="add-or">+ OR group</button><button class="button small primary" data-action="save-tree">Save cohort profile</button><button class="button small" data-action="save-tree-as">Save as new</button>${showExport?'<button class="button small" data-action="export-protocol">Download protocol</button>':''}<button class="button small" data-tree="expand">${expanded?'Exit expanded view':'Expand canvas'}</button></div></div>
-    <div class="tree-layout"><div><div class="tree-canvas-tools"><button class="button small" data-tree="arrange">Auto-arrange</button><label for="tree-zoom">Zoom</label><select id="tree-zoom">${[0.4,0.55,0.7,0.85,1].map(value=>`<option value="${value}" ${zoom===value?'selected':''}>${Math.round(value*100)}%</option>`).join('')}</select><span class="hint">Arrows show sequence and logical requirements.</span></div><div class="tree-viewport"><div class="tree-size" style="width:${model.width*zoom}px;height:${model.height*zoom}px"><div class="tree-world" style="width:${model.width}px;height:${model.height}px;transform:scale(${zoom})"><svg class="tree-links" width="${model.width}" height="${model.height}" aria-hidden="true"><defs><marker id="tree-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8" fill="#749b99" stroke="none"/></marker></defs><g>${edgePaths(model)}</g><path id="tree-link-preview" hidden/></svg>${model.nodes.map(n=>`<article class="tree-node ${n.kind} ${n.id===selected?'active':''}" data-node="${n.id}" data-kind="${n.kind}" style="left:${n.x}px;top:${n.y}px"><button class="tree-node-header" data-drag="${n.id}" aria-label="Move ${esc(n.title)}. Arrow keys move this card.">${esc(n.title)}<span aria-hidden="true">⠿</span></button><button class="tree-node-body" data-select-node="${n.id}"><span>${esc(n.body)}</span><small class="tree-note">${esc(d.graph.notes[n.id]||'Click to edit or add a note')}</small></button>${n.kind==='group'?`<button class="tree-port" data-target="${n.id}" aria-label="Connect selected condition to ${esc(n.title)}">Connect here</button>`:''}${/^r\d+$/.test(n.id)||n.kind==='group'&&n.id!==model.tree.id?`<button class="tree-link-handle" data-link="${n.id}" aria-label="Link ${esc(n.title)} to a group">Link ↗</button>`:''}</article>`).join('')}</div></div></div></div><aside id="tree-inspector" class="tree-inspector"></aside></div><div class="tree-expression"><strong>Selection expression</strong><p>${esc(logicText(model.tree))}</p><p class="hint">Every leaf refers to the same person and selected index date. Exclusions pass when the event-day threshold is not reached. Moving a card changes its layout. Reconnecting it changes the selection logic.</p></div></section>`;
+  return `<section class="tree-workspace panel ${expanded?'expanded':''}"><div class="tree-toolbar"><div><h2>Cohort design canvas</h2><p class="hint">Select a card to edit its criteria here. Drag a header to arrange cards or a Link handle onto a group to change logic.</p><p class="tree-validation" role="status">${issueCount?`Draft · ${issueCount} definition item${issueCount===1?'':'s'} need attention`:'Ready for SAS'}</p></div><div class="tree-actions"><button class="button small" data-tree="add-rule">+ Condition</button><button class="button small" data-tree="add-and">+ AND group</button><button class="button small" data-tree="add-or">+ OR group</button><button class="button small primary" data-action="save-tree">Save cohort</button><button class="button small" data-action="save-tree-as">Save as new</button>${showExport?'<button class="button small" data-action="export-protocol">Download protocol</button>':''}<button class="button small" data-tree="expand">${expanded?'Exit expanded view':'Expand canvas'}</button></div></div>
+    <div class="tree-layout"><div><div class="tree-canvas-tools"><button class="button small" data-tree="arrange">Auto-arrange</button><label for="tree-zoom">Zoom</label><select id="tree-zoom">${[0.4,0.55,0.7,0.85,1].map(value=>`<option value="${value}" ${zoom===value?'selected':''}>${Math.round(value*100)}%</option>`).join('')}</select><span class="hint">Arrows show sequence and logical requirements.</span></div><div class="tree-viewport"><div class="tree-size" style="width:${model.width*zoom}px;height:${model.height*zoom}px"><div class="tree-world" style="width:${model.width}px;height:${model.height}px;transform:scale(${zoom})"><svg class="tree-links" width="${model.width}" height="${model.height}" aria-hidden="true"><defs><marker id="tree-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8" fill="#749b99" stroke="none"/></marker></defs><g>${edgePaths(model)}</g><path id="tree-link-preview" hidden/></svg>${model.nodes.map(n=>`<article class="tree-node ${n.kind} ${n.id===selected?'active':''}" data-node="${n.id}" data-kind="${n.kind}" style="left:${n.x}px;top:${n.y}px"><button class="tree-node-header" data-drag="${n.id}" aria-label="Move ${esc(n.title)}. Arrow keys move this card.">${esc(n.title)}<span aria-hidden="true">⠿</span></button><button class="tree-node-body" data-select-node="${n.id}"><span>${esc(n.body)}</span><small class="tree-note">${esc(d.graph.notes[n.id]||'Click to edit or add a note')}</small></button>${n.kind==='group'?`<button class="tree-port" data-target="${n.id}" aria-label="Connect selected condition to ${esc(n.title)}">Connect here</button>`:''}${/^r\d+$/.test(n.id)||n.kind==='group'&&n.id!==model.tree.id?`<button class="tree-link-handle" data-link="${n.id}" aria-label="Link ${esc(n.title)} to a group">Link ↗</button>`:''}</article>`).join('')}</div></div></div></div><aside id="tree-inspector" class="tree-inspector"></aside></div><div class="tree-expression"><strong>Selection expression</strong><p>${esc(logicText(model.tree))}</p><p class="hint">Every leaf refers to the same person and selected index date. Exclusions pass when the event-day threshold is not reached. Moving a card changes its layout. Reconnecting it changes the selection logic.</p></div><div class="tree-issue-list" aria-live="polite"></div></section>`;
 }
 
 export function bindTree(container,d,catalog,{changed,refresh,addRule,removeRule,browseCodes,notify,domains,issues}){
@@ -70,9 +84,13 @@ export function bindTree(container,d,catalog,{changed,refresh,addRule,removeRule
     $('#tree-inspector').innerHTML=`<p class="eyebrow">EDIT SELECTED CARD</p><h3>${esc(node.title)}</h3><p class="hint">${esc(node.body).replaceAll('\n','<br>')}</p>${content}${group?`<label for="tree-operator">Combine children</label><select id="tree-operator"><option value="AND" ${group.op==='AND'?'selected':''}>AND · every condition</option><option value="OR" ${group.op==='OR'?'selected':''}>OR · any condition</option></select>`:''}
       ${parent?`<label for="tree-parent">Connected to</label><select id="tree-parent">${groupsIn(treeFor(d)).filter(g=>g.id!==selected).map(g=>`<option value="${g.id}" ${g.id===parent.id?'selected':''}>${g.id===model.tree.id?'Eligibility tree':'Group '+g.id.slice(1)} · ${g.op}</option>`).join('')}</select><p class="hint">Changing the parent reconnects this branch.</p>`:''}
       <label for="tree-note">Design note</label><textarea id="tree-note" maxlength="4000" rows="6" placeholder="Rationale, assumptions, or reporting notes">${esc(d.graph.notes[selected]||'')}</textarea><p class="hint">Notes appear in the study population protocol. Notes do not change selection logic.</p>
-      ${isRule||parent&&group?'<button class="button danger full-button" data-tree="remove">Remove card</button>':''}<div class="tree-issues">${(issues?.()||[]).slice(0,4).map(issue=>`<p>${esc(issue)}</p>`).join('')}</div><p id="tree-message" class="hint" role="status"></p>`;
+      ${isRule||parent&&group?'<button class="button danger full-button" data-tree="remove">Remove card</button>':''}<p id="tree-message" class="hint" role="status"></p>`;
   }
   function select(key){selected=key;container.querySelectorAll('.tree-node').forEach(node=>node.classList.toggle('active',node.dataset.node===key));inspector();}
+  function renderIssues(found){
+    const holder=$('.tree-issue-list');
+    if(holder)holder.innerHTML=found.length?`<strong>Fix these items before running SAS</strong><div>${found.map(issue=>`<button type="button" data-issue-node="${issueNode(issue)}">${esc(issue)} <span aria-hidden="true">→</span></button>`).join('')}</div>`:'';
+  }
   function redraw(){
     const viewport=$('.tree-viewport'),position={left:viewport.scrollLeft,top:viewport.scrollTop};
     refresh();
@@ -85,8 +103,8 @@ export function bindTree(container,d,catalog,{changed,refresh,addRule,removeRule
     const card=$(`[data-node="${selected}"]`);
     if(current&&card){card.querySelector('.tree-node-header').firstChild.textContent=current.title;card.querySelector('.tree-node-body>span').textContent=current.body;card.classList.toggle('exclude',current.kind==='exclude');card.classList.toggle('event',current.kind==='event');}
     const found=issues?.()||[];
-    $('.tree-validation').textContent=found.length?`${found.length} definition item${found.length===1?'':'s'} need attention`:'Definition ready to save';
-    const issueBox=$('.tree-issues');if(issueBox)issueBox.innerHTML=found.slice(0,4).map(issue=>`<p>${esc(issue)}</p>`).join('');
+    $('.tree-validation').textContent=found.length?`Draft · ${found.length} definition item${found.length===1?'':'s'} need attention`:'Ready for SAS';
+    renderIssues(found);
   }
   function editValue(el){
     const kind=el.dataset.treeModel,key=el.dataset.treeKey,index=Number(el.dataset.treeIndex);
@@ -107,6 +125,8 @@ export function bindTree(container,d,catalog,{changed,refresh,addRule,removeRule
     $('.tree-links').setAttribute('width',width);$('.tree-links').setAttribute('height',height);
   }
   container.addEventListener('click',e=>{
+    const issue=e.target.closest('[data-issue-node]');
+    if(issue){select(issue.dataset.issueNode);$(`[data-node="${issue.dataset.issueNode}"]`)?.scrollIntoView({block:'nearest',inline:'nearest'});$('#tree-inspector')?.scrollIntoView({block:'nearest'});return;}
     const key=e.target.closest('[data-select-node]')?.dataset.selectNode||e.target.closest('[data-drag]')?.dataset.drag;
     if(key)select(key);
     const link=e.target.closest('[data-link]');if(link){linking=link.dataset.link;select(linking);$('#tree-message').textContent='Choose Connect here on the destination group.';}
@@ -186,5 +206,5 @@ export function bindTree(container,d,catalog,{changed,refresh,addRule,removeRule
     else{d.graph.positions[ended.id]={x:ended.node.x,y:ended.node.y};changed();}
   });
   container.addEventListener('pointercancel',()=>{if(drag&&!drag.link)updatePosition(drag.node,drag.startX,drag.startY);drag=null;$('#tree-link-preview').setAttribute('hidden','');});
-  inspector();
+  inspector();renderIssues(issues?.()||[]);
 }
