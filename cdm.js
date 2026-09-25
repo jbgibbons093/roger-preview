@@ -1,5 +1,5 @@
-import { treeFor, logicText, logicIssues, usesOr } from './logic.js?v=03cca2a56ddb';
-import { parseRunFolder } from './paths.js?v=03cca2a56ddb';
+import { treeFor, logicText, logicIssues, usesOr } from './logic.js?v=7eb14de06d28';
+import { parseRunFolder } from './paths.js?v=7eb14de06d28';
 
 export const schemaId = 'mini-sentinel-cdm-3.0-v1';
 export const TABLES = ['DEM','DEA','ENR','ENC','DIA','PRO','DIS'];
@@ -23,7 +23,7 @@ export const catalog = {
     PX9:{label:'Procedure · ICD-9-CM',matching:"PX_CodeType='09'"},
     CPT:{label:'Procedure · CPT',matching:"PX_CodeType in ('C2','C3','C4')"},
     HCPCS:{label:'Procedure · HCPCS Level II',matching:"PX_CodeType='HC'"},
-    DRG:{label:'Encounter group · MS-DRG',matching:"DRG_Type='2'"},
+    DRG:{label:'Encounter group · MS-DRG',matching:"DRG_Type='2'. SAS stops with a data-quality error when queried records have DRG values but none are marked type 2; confirm the grouper version with the data steward."},
     NDC:{label:'Dispensing · NDC',matching:'Exact 11-digit NDC from Dispensing'}
   }
 };

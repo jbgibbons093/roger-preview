@@ -60,7 +60,7 @@
 %mend;
 
 %macro rg_events(rule_id,domain,table,enc_types,lower=&data_start,upper=&data_end);
-  %local k ds year dt field filter keep;
+  %local k ds year dt field filter keep drg_rows typed_rows;
   %let dt=ADate;
   %let keep=PatID EncounterID ADate EncType;
   %if &domain=DX or &domain=DX9 %then %do;
@@ -96,6 +96,22 @@
   %do k=1 %to %sysfunc(countw(&&files_&table,%str( )));
     %let ds=%scan(&&files_&table,&k,%str( ));
     %let year=%scan(&&years_&table,&k,%str( ));
+    %if &domain=DRG %then %do;
+      proc sql noprint;
+        select count(*), coalesce(sum(DRG_Type='2'),0)
+          into :drg_rows trimmed, :typed_rows trimmed
+        from &ds
+        where ADate >= &lower and ADate <= &upper
+          and not missing(DRG)
+          and findw("&enc_types",strip(EncType),' ') > 0;
+      quit;
+      %if %sysevalf(&drg_rows>0 and &typed_rows=0) %then %do;
+        %put ERROR: &ds has &drg_rows DRG values in the queried window but none with DRG_Type=2.;
+        %put ERROR: MS-DRG selection cannot be validated. Confirm DRG_Type and grouper version with the data steward.;
+        %abort cancel;
+      %end;
+      %put NOTE: ROGER DRG type check for &ds: &typed_rows of &drg_rows nonmissing DRG records have DRG_Type=2.;
+    %end;
     data work._rg_matching;
       length PatID %if &patid_type=C %then %do; $&patid_length %end; %else %do; 8 %end; EncounterID $&encounterid_length
         event_date source_year 8 source $3 source_file $41 code $18
