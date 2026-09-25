@@ -1,9 +1,9 @@
-import { parseCodes } from './cohort.js?v=7eb14de06d28';
+import { parseCodes } from './cohort.js?v=4cad80d790a0';
 
 const PAGE_SIZE = 50;
 const MAX_CODES = 500;
 const catalogs = new Map();
-const bundled = new Set(['DX', 'PCS', 'HCPCS', 'DRG']);
+const bundled = new Set(['DX', 'PCS', 'HCPCS', 'DRG', 'NDC']);
 const esc = value => String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 export const codeTokens = (text, domain) => parseCodes(text, domain).map(row => row.code + (row.match === 'PREFIX' ? '*' : ''));
 
@@ -51,15 +51,19 @@ export function importCatalog(text, domain) {
 }
 
 export async function openCodePicker({domain, codes, label, onApply}) {
+  const isNdc = domain === 'NDC';
+  const intro = isNdc
+    ? 'Search package NDCs by brand or generic drug name, ingredient, strength, or form. Selecting a row adds its exact 11-digit code. Check study-year validity and use a local catalog for missing historical codes.'
+    : `Search by code or description, then choose the codes for this event. ${bundled.has(domain)?'These reference descriptions cover 2023. Verify code validity for the event years.':'Load a catalog for the intended coding years.'}`;
   const selected = new Set(codeTokens(codes, domain));
   const opener = document.activeElement;
   const dialog = document.createElement('dialog');
   dialog.className = 'code-picker';
   dialog.setAttribute('aria-labelledby', 'picker-title');
-  dialog.innerHTML = `<div class="picker-head"><div><p class="eyebrow">CODE LIBRARY · ${bundled.has(domain)?'2023 REFERENCE':'LOCAL CATALOG'}</p><h2 id="picker-title">${esc(label)}</h2><p>Search by code or description, then choose the codes for this event. ${bundled.has(domain)?'These reference descriptions cover 2023. Verify code validity for the event years.':'Load a catalog for the intended coding years.'}</p></div><button class="picker-close" aria-label="Close code library" data-picker="cancel">×</button></div>
-    <div class="picker-controls"><div><label for="picker-search">Search codes or descriptions</label><input id="picker-search" type="search" placeholder="Type a code, condition, or procedure" autocomplete="off"></div><div><label for="picker-group">Browse a group</label><select id="picker-group"><option value="">All groups</option></select></div></div>
+  dialog.innerHTML = `<div class="picker-head"><div><p class="eyebrow">CODE LIBRARY · ${isNdc?'FDA NDC SNAPSHOT':bundled.has(domain)?'2023 REFERENCE':'LOCAL CATALOG'}</p><h2 id="picker-title">${esc(label)}</h2><p>${esc(intro)}</p></div><button class="picker-close" aria-label="Close code library" data-picker="cancel">×</button></div>
+    <div class="picker-controls"><div><label for="picker-search">${isNdc?'Search NDC or drug name':'Search codes or descriptions'}</label><input id="picker-search" type="search" placeholder="${isNdc?'Type a drug name, ingredient, strength, or NDC':'Type a code, condition, or procedure'}" autocomplete="off"></div><div><label for="picker-group">Browse a group</label><select id="picker-group"><option value="">All groups</option></select></div></div>
     <div class="picker-tools"><label class="check-row"><input id="picker-selected" type="checkbox">Show selected only</label><span id="picker-total" role="status">Loading catalog…</span></div>
-    <p id="picker-error" class="picker-error" role="alert" hidden></p><div id="picker-results" class="picker-results" aria-label="Code results"></div>
+    <p id="picker-error" class="picker-error" role="alert" hidden></p>${isNdc?'<div class="picker-column-head"><span></span><span>11-digit NDC</span><span>Drug name · ingredient · strength · form</span></div>':''}<div id="picker-results" class="picker-results" aria-label="Code results"></div>
     <div class="picker-pagination"><button class="button small" data-picker="prev">Previous</button><span id="picker-page"></span><button class="button small" data-picker="next">Next</button><button class="button small" data-picker="select-page">Select this page</button></div>
     <details class="picker-reference"><summary>Catalog details and sources</summary><p id="picker-note"></p><div id="picker-sources"></div></details>
     ${'<div class="picker-import"><label for="picker-file">Load your code catalog</label><input id="picker-file" type="file" accept=".csv,.json"><p class="hint">CSV with code,description headers, or a JSON array of code and description objects. The file stays in this browser session.</p></div>'}
@@ -83,15 +87,15 @@ export async function openCodePicker({domain, codes, label, onApply}) {
     $('[data-picker="prev"]').disabled = page === 0;
     $('[data-picker="next"]').disabled = page >= pages - 1;
     $('[data-picker="select-page"]').disabled = !filtered.length;
-    $('#picker-results').innerHTML = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE).map(row => `<label class="picker-row ${selected.has(row[0]) ? 'picked' : ''}"><input type="checkbox" data-code="${esc(row[0])}" ${selected.has(row[0]) ? 'checked' : ''}><span class="picker-code">${esc(domain === 'DX' && row[0].replace('*','').length > 3 ? row[0].slice(0,3) + '.' + row[0].slice(3) : row[0])}${row[0].endsWith('*') ? '<small>Code family</small>' : ''}</span><span class="picker-description">${esc(row[1])}<small>${esc(releases(row))}</small></span></label>`).join('') || `<div class="picker-empty">${catalog.rows.length ? 'No matching codes. Try a shorter term or a different group.' : 'Load a local catalog to search descriptions. You can also enter codes directly in the event’s code list.'}</div>`;
+    $('#picker-results').innerHTML = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE).map(row => `<label class="picker-row ${selected.has(row[0]) ? 'picked' : ''}"><input type="checkbox" data-code="${esc(row[0])}" ${selected.has(row[0]) ? 'checked' : ''}><span class="picker-code">${esc(domain === 'DX' && row[0].replace('*','').length > 3 ? row[0].slice(0,3) + '.' + row[0].slice(3) : row[0])}${row[0].endsWith('*') ? '<small>Code family</small>' : ''}</span><span class="picker-description">${esc(row[1])}<small>${esc(isNdc ? row[2] : releases(row))}</small></span></label>`).join('') || `<div class="picker-empty">${catalog.rows.length ? 'No matching codes. Try a shorter term or a different group.' : 'Load a local catalog to search descriptions. You can also enter codes directly in the event’s code list.'}</div>`;
     $('#picker-results').scrollTop = 0;
     count();
   }
   function useCatalog(value) {
-    dialog.querySelector('.picker-head .eyebrow').textContent=value.periods.length?'CODE LIBRARY · 2023 REFERENCE':'CODE LIBRARY · LOCAL CATALOG';
+    dialog.querySelector('.picker-head .eyebrow').textContent=value.asOf?`CODE LIBRARY · FDA NDC ${value.asOf}`:value.periods.length?'CODE LIBRARY · 2023 REFERENCE':'CODE LIBRARY · LOCAL CATALOG';
     catalog = value;
     catalog.byCode ||= new Map(catalog.rows.map(row=>[row[0],row]));
-    $('#picker-group').innerHTML = '<option value="">All groups</option>' + catalog.groups.map(group=>`<option value="${esc(group)}">${esc(domain === 'DRG' ? group : group + ' codes')}</option>`).join('');
+    $('#picker-group').innerHTML = '<option value="">All groups</option>' + catalog.groups.map(group=>`<option value="${esc(group)}">${esc(domain === 'DRG' || isNdc ? group : group + ' codes')}</option>`).join('');
     $('#picker-note').textContent = catalog.note;
     $('#picker-sources').innerHTML = catalog.sources.map((source,i)=>`<a href="${esc(source.url)}" target="_blank" rel="noreferrer">Source file ${i+1} ↗</a>`).join(' · ');
     page = 0; draw();
@@ -133,7 +137,7 @@ export async function openCodePicker({domain, codes, label, onApply}) {
   try {
     let value = catalogs.get(domain);
     if (!value && bundled.has(domain)) {
-      const response = await fetch(`./codes-${domain.toLowerCase()}.json?v=7eb14de06d28`);
+      const response = await fetch(`./codes-${domain.toLowerCase()}.json?v=4cad80d790a0`);
       if (!response.ok) throw new Error('Unable to load the code catalog. Close and reopen the library to retry.');
       value = await response.json(); catalogs.set(domain,value);
     }

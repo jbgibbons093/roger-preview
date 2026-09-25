@@ -1,5 +1,5 @@
-import { treeFor, logicText, logicIssues, usesOr } from './logic.js?v=7eb14de06d28';
-import { parseRunFolder } from './paths.js?v=7eb14de06d28';
+import { treeFor, logicText, logicIssues, usesOr } from './logic.js?v=4cad80d790a0';
+import { parseRunFolder } from './paths.js?v=4cad80d790a0';
 
 export const schemaId = 'mini-sentinel-cdm-3.0-v1';
 export const TABLES = ['DEM','DEA','ENR','ENC','DIA','PRO','DIS'];
@@ -234,8 +234,10 @@ run;
 %let mynode=${host} ${port};
 options comamid=tcp;
 filename rlink ${q(script)};
+%put ROGER_PROGRESS stage=connection event=start;
 signon mynode.sasspawn;
 rsubmit;
+%put ROGER_PROGRESS stage=connection event=complete;
 ${createOutput}
 ${body}
 endrsubmit;

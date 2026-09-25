@@ -305,6 +305,10 @@ run;
   %end;
 %mend;
 
+%macro rg_progress(stage,event);
+  %put ROGER_PROGRESS stage=&stage event=&event;
+%mend;
+
 %macro rg_require(ds, vars, types, extract);
   %local handle j variable position expected observed rc width;
   %let handle=%sysfunc(open(&ds,i));
@@ -815,20 +819,30 @@ run;
 %mend;
 
 %macro roger_cdm_cut;
+  %rg_progress(preflight,start);
   %rg_preflight;
+  %rg_progress(preflight,complete);
+  %rg_progress(index,start);
   %rg_index_stage;
   %rg_stage_report(index);
+  %rg_progress(index,complete);
   %if &stop_after=INDEX %then %return;
   %rg_addon_after_index;
   %rg_stage_integrity(index);
+  %rg_progress(eligibility,start);
   %rg_eligibility_stage;
   %rg_stage_report(eligibility);
+  %rg_progress(eligibility,complete);
   %if &stop_after=ELIGIBILITY %then %return;
   %rg_addon_after_eligibility;
   %rg_stage_integrity(eligibility);
+  %rg_progress(covariates,start);
   %rg_build_covariates;
   %rg_stage_integrity(covariates);
+  %rg_progress(covariates,complete);
+  %rg_progress(delivery,start);
   %rg_delivery_stage;
+  %rg_progress(delivery,complete);
 %mend;
 
 

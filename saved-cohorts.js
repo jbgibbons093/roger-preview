@@ -1,4 +1,4 @@
-import { readDefinition } from './cohort.js?v=7eb14de06d28';
+import { readDefinition } from './cohort.js?v=4cad80d790a0';
 
 export const SAVED_COHORTS_KEY='roger.saved.cohorts.v1';
 export const RETIRED_COHORTS_KEY='roger.saved.retired-market-data.v1';
