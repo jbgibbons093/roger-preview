@@ -1,5 +1,5 @@
-import { treeFor, logicText, logicIssues, usesOr } from './logic.js?v=9ddc8a65f727';
-import { parseRunFolder } from './paths.js?v=9ddc8a65f727';
+import { treeFor, logicText, logicIssues, usesOr } from './logic.js?v=13d0f862af21';
+import { parseRunFolder } from './paths.js?v=13d0f862af21';
 
 export const schemaId = 'mini-sentinel-cdm-3.0-v1';
 export const TABLES = ['DEM','DEA','ENR','ENC','DIA','PRO','DIS'];
@@ -244,6 +244,7 @@ signoff mynode.sasspawn nocscript;
 }
 
 export function compileResultsExport(d,settings){
+  if(d.stopAfter!=='DELIVER')throw new Error('Results are available after Final data cut. Review the checkpoint log, then run a fresh final cut.');
   const output=String(d.outputPath||'').trim();
   parseRunFolder(output);
   const host=String(settings.host||'').trim(),port=Number(settings.port),script=String(settings.script||'').trim();
@@ -259,6 +260,7 @@ export function compileResultsExport(d,settings){
 }
 
 export function compilePrintPreview(d,settings){
+  if(d.stopAfter!=='DELIVER')throw new Error('The 100-row preview is available after Final data cut. Review the checkpoint log, then run a fresh final cut.');
   const output=String(d.outputPath||'').trim();
   parseRunFolder(output);
   const host=String(settings.host||'').trim(),port=Number(settings.port),script=String(settings.script||'').trim();

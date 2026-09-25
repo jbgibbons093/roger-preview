@@ -5,20 +5,20 @@
   <title>ROGER · Cohort workspace</title>
   <meta name="description" content="Define Mini-Sentinel CDM cohorts visually and export a reviewable SAS 9.4 extraction program.">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23132135'/%3E%3Cpath d='M9 24V8h7a5 5 0 0 1 0 10h-7m7 0 7 6' fill='none' stroke='%2358d1bd' stroke-width='3'/%3E%3C/svg%3E">
-  <link rel="stylesheet" href="./style.css?v=9ddc8a65f727">
+  <link rel="stylesheet" href="./style.css?v=13d0f862af21">
 </head>
 <body>
   <aside class="sidebar">
     <a class="brand" href="./" aria-label="ROGER home"><span class="brand-mark">R</span><span>ROGER<small>RESEARCH WORKSPACE</small></span></a>
     <div class="side-caption">WORKSPACE</div>
-    <button class="side-link selected" data-view="graph"><span aria-hidden="true">◇</span> Cohort tree</button>
-    <button class="side-link" data-view="builder"><span aria-hidden="true">▦</span> Cohort definition</button>
-    <button class="side-link" data-view="saved"><span aria-hidden="true">▣</span> Saved cohorts</button>
     <button class="side-link" data-view="profile" hidden><span aria-hidden="true">♙</span> Investigator profiles</button>
+    <button class="side-link" data-view="codebook"><span aria-hidden="true">▤</span> Data dictionary</button>
+    <button class="side-link" data-view="builder"><span aria-hidden="true">▦</span> Cohort definition</button>
+    <button class="side-link" data-view="graph"><span aria-hidden="true">◇</span> Cohort tree</button>
+    <button class="side-link" data-view="saved"><span aria-hidden="true">▣</span> Saved cohorts</button>
     <button class="side-link" data-view="run" hidden><span aria-hidden="true">▶</span> Run in SAS</button>
     <button class="side-link" data-view="preview"><span aria-hidden="true">▤</span> Data preview</button>
     <button class="side-link" data-view="diagnostics"><span aria-hidden="true">◫</span> Diagnostics</button>
-    <button class="side-link" data-view="codebook"><span aria-hidden="true">▤</span> Data dictionary</button>
     <div class="later"><span>Analyses</span><span class="soon">LATER</span><p>Preview and diagnose a cohort now. Comparative analyses come next.</p></div>
     <div class="side-bottom"><span class="engine-symbol">SAS</span><div>SAS 9.4 engine<small id="execution-mode">Program export mode</small></div></div>
   </aside>
@@ -27,7 +27,7 @@
     <main id="main">
       <div class="heading"><div><p class="eyebrow">MINI-SENTINEL CDM</p><h1>Build your cohort.</h1><p class="subtitle">Turn a research question into a reproducible data cut.</p></div><button class="button primary" id="review-button">Save cohort <span aria-hidden="true">→</span></button></div>
       <div class="mode-banner"><span class="tag">DEFINITION MODE</span><span>Build and save cohort rules, then export to SAS. Source data stays in your SAS environment.</span></div>
-      <nav class="tabs" aria-label="Workspace views"><button data-view="graph" class="active">Cohort tree</button><button data-view="builder">Cohort definition</button><button data-view="saved">Saved cohorts</button><button data-view="profile" hidden>Profiles</button><button data-view="run" hidden>Run in SAS</button><button data-view="preview">Data preview</button><button data-view="diagnostics">Diagnostics</button><button data-view="codebook">CDM dictionary</button></nav>
+      <nav class="tabs" aria-label="Workspace views"><button data-view="profile" hidden>Profiles</button><button data-view="codebook">CDM dictionary</button><button data-view="builder">Cohort definition</button><button data-view="graph">Cohort tree</button><button data-view="saved">Saved cohorts</button><button data-view="run" hidden>Run in SAS</button><button data-view="preview">Data preview</button><button data-view="diagnostics">Diagnostics</button></nav>
       <div id="app" aria-live="off"><p>Loading the CDM schema…</p></div>
     </main>
     <footer><span>ROGER · Cohort workspace</span><span>Mini-Sentinel CDM v3.0</span></footer>
@@ -35,6 +35,6 @@
   <input type="file" id="import-file" accept="application/json,.json" hidden>
   <input type="file" id="result-files" accept=".csv,text/csv" multiple hidden>
   <div id="toast" role="status" hidden></div>
-  <script type="module" src="./app.js?v=9ddc8a65f727"></script>
+  <script type="module" src="./app.js?v=13d0f862af21"></script>
 </body>
 </html>
