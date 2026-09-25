@@ -1,6 +1,14 @@
-import { readDefinition } from './cohort.js?v=13d0f862af21';
+import { readDefinition } from './cohort.js?v=03cca2a56ddb';
 
 export const SAVED_COHORTS_KEY='roger.saved.cohorts.v1';
+export const RETIRED_COHORTS_KEY='roger.saved.retired-market-data.v1';
+
+export function partitionSavedCohorts(value){
+  if(!Array.isArray(value)||value.length>100)throw new Error('The saved cohort library is invalid.');
+  const retired=value.filter(item=>item?.definition?.schemaId==='marketscan-ccae-mdcr-2023-v1');
+  const active=readSavedCohorts(value.filter(item=>!retired.includes(item)));
+  return {active,retired};
+}
 
 export function snapshotDefinition(definition){
   const copy=readDefinition(structuredClone(definition));
