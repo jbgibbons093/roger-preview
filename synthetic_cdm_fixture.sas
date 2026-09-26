@@ -178,10 +178,14 @@ options errorabend;
 %let outputs=DEM DEA ENR ENC DIA PRO DIS;
 %let outlib=WORK;
 %let index_order=LAST;
+%let comparison=0;
 %let advanced_logic=1;
 %let stop_after=DELIVER;
 %let index_start=%sysfunc(inputn(20151001,yymmdd8.));
 %let index_end=%sysfunc(inputn(20151015,yymmdd8.));
+
+%let search_index_start=%sysfunc(inputn(20151001,yymmdd8.));
+%let search_index_end=%sysfunc(inputn(20151015,yymmdd8.));
 %let data_start='01JAN2014'd;
 %let data_end='31DEC2015'd;
 %let files_DEM=MS.Demographic_2014_2015;
@@ -206,6 +210,7 @@ data work._rg_definition;
   logic_json='{"id":"g0","op":"AND","children":[0,{"id":"g1","op":"OR","children":[1,2]},3]}';
   input_path=''; output_path='';
   index_start=&index_start; index_end=&index_end;
+
   created_at=datetime(); format created_at datetime20. index_start index_end yymmdd10.;
   age_min=18;
   age_max=64;
@@ -220,6 +225,7 @@ data work._rg_definition;
   outputs='DEM DEA ENR ENC DIA PRO DIS';
   outlib='WORK';
   index_order='LAST';
+  comparison=0;
   advanced_logic=1;
   stop_after='DELIVER';
 run;
@@ -250,11 +256,11 @@ datalines4;
 ;;;;
 run;
 data work._rg_covariates;
-  length cov_id min_days lower_day upper_day 8 key $20 label $80 domain $5 sources $3 enc_types $14;
+  length cov_id min_days lower_day upper_day 8 key $20 label $80 domain $5 sources $3 enc_types $14 arm $10;
   infile datalines4 dlm='|' dsd truncover;
-  input cov_id key :$20. label :$80. domain :$5. sources :$3. min_days lower_day upper_day enc_types :$14.;
+  input cov_id key :$20. label :$80. domain :$5. sources :$3. min_days lower_day upper_day enc_types :$14. arm :$10.;
 datalines4;
-1001|office_visit|Office visit|CPT|PRO|1|-30|0|AV ED IP IS OA
+1001|office_visit|Office visit|CPT|PRO|1|-30|0|AV ED IP IS OA|BOTH
 ;;;;
 run;
 data work._rg_manifest;
@@ -284,11 +290,11 @@ run;
 %mend;
 
 %macro rg_build_covariates;
-  %rg_covariate(1001,CPT,PRO,AV ED IP IS OA,-30,0,1,office_visit);
+  %rg_covariate(1001,CPT,PRO,AV ED IP IS OA,-30,0,1,office_visit,BOTH);
 %mend;
 
 %macro rg_covariate_counts;
-  dimension='Covariate: office_visit'; value=ifc(cov_office_visit=1,'Yes','No'); output;
+  dimension='Covariate: office_visit'; value=ifc(missing(cov_office_visit),'Not applicable',ifc(cov_office_visit=1,'Yes','No')); output;
 %mend;
 %macro rg_covariate_missing;
   variable='cov_office_visit'; is_missing=missing(cov_office_visit); output;
@@ -420,7 +426,7 @@ run;
         declare hash selected(dataset:"work._rg_codes(where=(rule_id=&rule_id))");
         selected.defineKey('code','match_type');
         selected.defineDone();
-        %if &rule_id ne 1 %then %do;
+        %if &rule_id ne 1 and &rule_id ne 0 %then %do;
           /* Eligibility rules and covariates only need events for current candidates. */
           declare hash candidates(dataset:"work._rg_cohort(keep=PatID)");
           candidates.defineKey('PatID');
@@ -431,7 +437,7 @@ run;
       set &ds(keep=&keep);
       where &dt >= &lower and &dt <= &upper and (&filter);
       if missing(PatID) or missing(&dt) then delete;
-      %if &rule_id ne 1 %then %do;
+      %if &rule_id ne 1 and &rule_id ne 0 %then %do;
         if candidates.check() ne 0 then delete;
       %end;
       %if &domain ne NDC %then %do;
@@ -552,9 +558,9 @@ run;
   %put NOTE: ROGER preflight passed. Required source files and output names were checked.;
 %mend;
 
-%macro rg_covariate(cov_id,domain,table,enc_types,lower,upper,days,key);
+%macro rg_covariate(cov_id,domain,table,enc_types,lower,upper,days,key,arm);
   %rg_events(&cov_id,&domain,&table,&enc_types,
-    lower=%sysfunc(sum(&index_start,&lower)),upper=%sysfunc(sum(&index_end,&upper)));
+    lower=%sysfunc(sum(&search_index_start,&lower)),upper=%sysfunc(sum(&search_index_end,&upper)));
   proc sql;
     create table work._rg_cov_hits as
     select c.PatID,count(distinct e.event_date) as hit_days
@@ -563,8 +569,15 @@ run;
       and e.event_date<=c.index_date+&upper
     group by c.PatID;
     create table work._rg_next as
-    select c.*,coalesce(h.hit_days,0) as cov_&key._days,
-      (calculated cov_&key._days >= &days) as cov_&key
+    select c.*,
+      %if &comparison=1 and &arm ne BOTH %then %do;
+        case when c.index_arm="&arm" then coalesce(h.hit_days,0) else . end as cov_&key._days,
+        case when c.index_arm="&arm" then (coalesce(h.hit_days,0)>=&days) else . end as cov_&key
+      %end;
+      %else %do;
+        coalesce(h.hit_days,0) as cov_&key._days,
+        (calculated cov_&key._days >= &days) as cov_&key
+      %end;
     from work._rg_cohort c left join work._rg_cov_hits h on c.PatID=h.PatID;
   quit;
   data work._rg_cohort; set work._rg_next; run;
@@ -578,20 +591,83 @@ run;
       from work._rg_rules where rule_id=1;
   quit;
   %rg_events(1,&domain,&sources,&enc_types,lower=&index_start,upper=&index_end);
-  proc sort data=work._rg_events(where=(event_date>=&index_start and event_date<=&index_end)) out=work._rg_index;
-    by PatID %if &index_order=LAST %then %do; descending %end; event_date source_file EncounterID code;
-  run;
-  data work._rg_cohort;
-    set work._rg_index;
-    by PatID;
-    if first.PatID;
-    index_date=event_date;
-    format index_date yymmdd10.;
-    rename EncounterID=index_encounter source=index_source source_file=index_file source_year=index_file_year code=index_code;
-    drop event_date;
-  run;
+  %if &comparison=1 %then %do;
+    data work._rg_treatment_events;
+      length index_arm $9;
+      set work._rg_events(where=(event_date>=&index_start and event_date<=&index_end));
+      index_arm='TREATMENT'; arm_rank=1;
+    run;
+    proc sql noprint;
+      select domain,sources,enc_types into :domain trimmed,:sources trimmed,:enc_types trimmed
+        from work._rg_rules where rule_id=0;
+    quit;
+    %rg_events(0,&domain,&sources,&enc_types,lower=&control_index_start,upper=&control_index_end);
+    data work._rg_control_events;
+      length index_arm $9;
+      set work._rg_events(where=(event_date>=&control_index_start and event_date<=&control_index_end));
+      index_arm='CONTROL'; arm_rank=2;
+    run;
+    data work._rg_all_index_events;
+      set work._rg_treatment_events work._rg_control_events;
+    run;
+    proc sort data=work._rg_all_index_events out=work._rg_arm_sorted;
+      by PatID index_arm %if &index_order=LAST %then %do; descending %end; event_date source_file EncounterID code;
+    run;
+    data work._rg_arm_candidates;
+      set work._rg_arm_sorted;
+      by PatID index_arm;
+      if first.index_arm;
+    run;
+    proc sql;
+      create table work._rg_candidate_dates as
+      select PatID,
+        max(case when index_arm='TREATMENT' then event_date else . end) as treatment_index_date format=yymmdd10.,
+        max(case when index_arm='CONTROL' then event_date else . end) as control_index_date format=yymmdd10.
+      from work._rg_arm_candidates group by PatID;
+    quit;
+    proc sort data=work._rg_arm_candidates out=work._rg_index;
+      by PatID event_date arm_rank;
+    run;
+    data work._rg_chosen;
+      set work._rg_index;
+      by PatID;
+      %if &overlap_policy=EXCLUDE %then %do;
+        if first.PatID and last.PatID;
+      %end;
+      %else %do;
+        if first.PatID;
+      %end;
+    run;
+    proc sql;
+      create table work._rg_cohort as
+      select c.*,d.treatment_index_date,d.control_index_date
+      from work._rg_chosen c left join work._rg_candidate_dates d on c.PatID=d.PatID;
+    quit;
+    data work._rg_cohort;
+      set work._rg_cohort;
+      index_date=event_date;
+      format index_date yymmdd10.;
+      rename EncounterID=index_encounter source=index_source source_file=index_file source_year=index_file_year code=index_code;
+      drop event_date arm_rank;
+    run;
+  %end;
+  %else %do;
+    proc sort data=work._rg_events(where=(event_date>=&index_start and event_date<=&index_end)) out=work._rg_index;
+      by PatID %if &index_order=LAST %then %do; descending %end; event_date source_file EncounterID code;
+    run;
+    data work._rg_cohort;
+      set work._rg_index;
+      by PatID;
+      if first.PatID;
+      index_date=event_date;
+      format index_date yymmdd10.;
+      rename EncounterID=index_encounter source=index_source source_file=index_file source_year=index_file_year code=index_code;
+      drop event_date;
+    run;
+  %end;
   %rg_checkpoint(index selection);
-  %rg_count(1,&index_order matching index event);
+  %if &comparison=1 %then %rg_count(1,Selected treatment or control index);
+  %else %rg_count(1,&index_order matching index event);
 %mend;
 
 %macro rg_eligibility_stage;
@@ -654,7 +730,7 @@ run;
     %rg_count(3,Enrollment requirements);
   %end;
   proc sql noprint;
-    select count(*) into :n_rules trimmed from work._rg_rules;
+    select max(rule_id) into :n_rules trimmed from work._rg_rules;
   quit;
   %do rid=2 %to &n_rules;
     proc sql noprint;
@@ -663,7 +739,7 @@ run;
         from work._rg_rules where rule_id=&rid;
     quit;
     %rg_events(&rid,&domain,&sources,&enc_types,
-      lower=%sysfunc(sum(&index_start,&lower)),upper=%sysfunc(sum(&index_end,&upper)));
+      lower=%sysfunc(sum(&search_index_start,&lower)),upper=%sysfunc(sum(&search_index_end,&upper)));
     proc sql;
       create table work._rg_hitcounts as
       select c.PatID,count(distinct e.event_date) as hit_days
@@ -751,6 +827,9 @@ run;
     length dimension $40 value $64;
     dimension='Sex'; value=ifc(missing(Sex),'(missing)',strip(Sex)); output;
     dimension='Index source'; value=ifc(missing(index_source),'(missing)',strip(index_source)); output;
+    %if &comparison=1 %then %do;
+      dimension='Index arm'; value=index_arm; output;
+    %end;
     dimension='Index month'; value=put(index_date,yymmn6.); output;
     dimension='Age band'; value=cats(put(floor(age_at_index/10)*10,3.),'s'); output;
     %rg_covariate_counts;
@@ -803,7 +882,7 @@ run;
   proc print data=work._rg_attrition noobs; run;
   title "ROGER &label stage: first 100 selected rows (identifiers omitted)";
   proc print data=work._rg_cohort(obs=100) noobs;
-    var index_date index_source index_code;
+    var index_date %if &comparison=1 %then %do; index_arm %end; index_source index_code;
   run;
   title;
 %mend;

@@ -1,5 +1,5 @@
-import * as cdm from './cdm.js?v=2a7380fd6912';
-import { logicIssues } from './logic.js?v=2a7380fd6912';
+import * as cdm from './cdm.js?v=20580f35e743';
+import { logicIssues } from './logic.js?v=20580f35e743';
 
 export function parseCodes(text, domain) {
   const tokens = text.toUpperCase().split(/[\s,;]+/).filter(Boolean);
@@ -38,8 +38,14 @@ export function readDefinition(candidate) {
   if (!Array.isArray(candidate.rules) || candidate.rules.length > 20) throw new Error('Expected up to 20 eligibility criteria.');
   if(!Array.isArray(candidate.covariates)||candidate.covariates.length>20)throw new Error('Expected up to 20 covariates.');
   for(const r of candidate.covariates){
-    if(!r||typeof r.key!=='string'||r.key.length>20||typeof r.label!=='string'||r.label.length>80||!Object.hasOwn(domains,r.domain)||typeof r.codes!=='string'||r.codes.length>20000||!Array.isArray(r.sources)||r.sources.length!==1||r.sources[0]!==domains[r.domain][0]||!Array.isArray(r.encTypes)||r.encTypes.some(t=>!Object.hasOwn(cdm.ENC_TYPES,t))||['from','to','minDays'].some(k=>!Number.isFinite(r[k])))throw new Error('Invalid covariate definition.');
+    if(!r||typeof r.key!=='string'||r.key.length>20||typeof r.label!=='string'||r.label.length>80||!Object.hasOwn(domains,r.domain)||typeof r.codes!=='string'||r.codes.length>20000||!Array.isArray(r.sources)||r.sources.length!==1||r.sources[0]!==domains[r.domain][0]||!Array.isArray(r.encTypes)||r.encTypes.some(t=>!Object.hasOwn(cdm.ENC_TYPES,t))||['from','to','minDays'].some(k=>!Number.isFinite(r[k]))||r.arm!==undefined&&!['BOTH','TREATMENT','CONTROL'].includes(r.arm))throw new Error('Invalid covariate definition.');
   }
+  if(candidate.comparison!==undefined){
+    const comparison=candidate.comparison;
+    if(!comparison||typeof comparison!=='object'||Array.isArray(comparison)||typeof comparison.start!=='string'||typeof comparison.end!=='string'||!['EARLIEST','EXCLUDE'].includes(comparison.overlap)||!comparison.controlIndex)throw new Error('Invalid treatment/control comparison.');
+    const r=comparison.controlIndex;
+    if(!Object.hasOwn(domains,r.domain)||typeof r.codes!=='string'||r.codes.length>20000||!Array.isArray(r.sources)||r.sources.length!==1||r.sources[0]!==domains[r.domain][0]||!Array.isArray(r.encTypes)||r.encTypes.some(t=>!Object.hasOwn(cdm.ENC_TYPES,t))||new Set(r.encTypes).size!==r.encTypes.length)throw new Error('Invalid control index definition.');
+  }else if(candidate.covariates.some(r=>r.arm&&r.arm!=='BOTH'))throw new Error('Arm-specific covariates require a treatment/control comparison.');
   if(!['FIRST','LAST'].includes(candidate.indexOrder))throw new Error('Choose first or last matching index event.');
   if(candidate.logic!==null){const issues=logicIssues(candidate.logic,candidate.rules.length,true);if(issues.length)throw new Error(issues[0]);}
   if(!candidate.graph||typeof candidate.graph!=='object')throw new Error('Invalid graph metadata.');
@@ -47,7 +53,7 @@ export function readDefinition(candidate) {
     const values=candidate.graph[kind];
     if(!values||typeof values!=='object'||Array.isArray(values)||Object.keys(values).length>70)throw new Error('Invalid graph metadata.');
     for(const [key,value] of Object.entries(values)){
-      if(!/^(population|index|demographics|enrollment|covariates|output|r\d{1,2}|g\d{1,3})$/.test(key))throw new Error('Invalid graph node.');
+      if(!/^(population|index|controlIndex|demographics|enrollment|covariates|output|r\d{1,2}|g\d{1,3})$/.test(key))throw new Error('Invalid graph node.');
       if(kind==='notes'?(typeof value!=='string'||value.length>4000):(!value||!['x','y'].every(axis=>Number.isFinite(value[axis])&&value[axis]>=0&&value[axis]<=20000)))throw new Error('Invalid node note or position.');
     }
   }
@@ -59,7 +65,9 @@ export function readDefinition(candidate) {
   }
   if (!Array.isArray(candidate.outputs) || candidate.outputs.some(t=>!tables.includes(t)) || new Set(candidate.outputs).size !== candidate.outputs.length) throw new Error('Invalid output tables.');
   if (!candidate.mapping || tables.some(t=>typeof candidate.mapping[t] !== 'string' || candidate.mapping[t].length > 1000)) throw new Error('Invalid table mappings.');
-  return structuredClone(Object.fromEntries(Object.keys(base).map(k=>[k,candidate[k]])));
+  const result=Object.fromEntries(Object.keys(base).map(k=>[k,candidate[k]]));
+  if(candidate.comparison!==undefined)result.comparison=candidate.comparison;
+  return structuredClone(result);
 }
 
 export function validateDefinition(definition) {

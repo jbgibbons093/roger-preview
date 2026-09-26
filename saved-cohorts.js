@@ -1,6 +1,6 @@
-import { readDefinition, parseCodes } from './cohort.js?v=2a7380fd6912';
-import { treeFor, logicText } from './logic.js?v=2a7380fd6912';
-import { TABLES } from './cdm.js?v=2a7380fd6912';
+import { readDefinition, parseCodes } from './cohort.js?v=20580f35e743';
+import { treeFor, logicText } from './logic.js?v=20580f35e743';
+import { TABLES } from './cdm.js?v=20580f35e743';
 
 export const SAVED_COHORTS_KEY='roger.saved.cohorts.v2';
 export const LEGACY_SAVED_COHORTS_KEY='roger.saved.cohorts.v1';
@@ -96,6 +96,11 @@ function compareFields(value){
   add('Delivery years',`${d.yearStart}–${d.yearEnd}`);
   add('Index dates',`${d.start} through ${d.end}`);
   add('Index ordering',d.indexOrder);
+  add('Comparison mode',d.comparison?'Treatment and control':'Single index');
+  if(d.comparison){
+    add('Control index dates',`${d.comparison.start} through ${d.comparison.end}`);
+    add('Treatment/control overlap',d.comparison.overlap);
+  }
   add('Age at index',`${d.ageMin}–${d.ageMax}`);
   add('Recorded sex',d.sex);
   add('Enrollment required',d.enrollment?'Yes':'No');
@@ -106,6 +111,7 @@ function compareFields(value){
     add('Enrollment · drug coverage',d.rx?'Required':'Unrestricted');
   }
   event('Index event',d.index);
+  if(d.comparison)event('Control index event',d.comparison.controlIndex);
   add('Condition tree',logicText(treeFor(d)));
   add('Additional criterion count',d.rules.length);
   d.rules.forEach((rule,i)=>event(`Criterion ${i+1}`,rule,true));
@@ -114,6 +120,7 @@ function compareFields(value){
     const name=`Covariate ${i+1}`;
     add(`${name} · key`,cov.key);
     add(`${name} · label`,cov.label);
+    if(d.comparison)add(`${name} · arm`,cov.arm||'BOTH');
     event(name,cov);
     add(`${name} · day window`,`${cov.from} through ${cov.to}`);
     add(`${name} · minimum distinct days`,cov.minDays);

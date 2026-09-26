@@ -1,5 +1,5 @@
-import { DOMAINS as CDM_DOMAINS, ENC_TYPES } from './cdm.js?v=2a7380fd6912';
-import { treeFor, groupsIn, logicText, moveCondition } from './logic.js?v=2a7380fd6912';
+import { DOMAINS as CDM_DOMAINS, ENC_TYPES } from './cdm.js?v=20580f35e743';
+import { treeFor, groupsIn, logicText, moveCondition } from './logic.js?v=20580f35e743';
 
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const WIDTH=210, HEIGHT=166;
@@ -9,6 +9,7 @@ export function issueNode(issue){
   const text=String(issue);
   const rule=text.match(/^Criterion (\d+)\b/i);
   if(rule)return `r${Number(rule[1])-1}`;
+  if(/control index/i.test(text))return 'controlIndex';
   if(/\bcovariate\b|baseline covariates/i.test(text))return 'covariates';
   if(/afterIndex|afterEligibility|stopAfter/i.test(text))return 'output';
   if(/\bage\b|\bsex\b|demographic/i.test(text))return 'demographics';
@@ -23,27 +24,29 @@ function graphModel(d,catalog){
   const tree=treeFor(d), nodes=[],edges=[];
   const add=(id,title,kind,body,x,y)=>nodes.push({id,title,kind,body,...(d.graph.positions[id]||{x,y})});
   add('population','Source population','stage',`Mini-Sentinel CDM · ${d.yearStart}–${d.yearEnd}`,30,30);
-  add('index','Index event','event',`${d.indexOrder==='LAST'?'Last':'First'} ${catalog.domains[d.index.domain].label}\n${d.index.codes||'Choose index codes'}\n${d.start} to ${d.end}`,270,30);
-  add('demographics','Demographics','stage',`Age at index ${d.ageMin}–${d.ageMax}\n${d.sex==='ALL'?'All recorded sex values':d.sex==='M'?'Male':d.sex==='F'?'Female':d.sex}\nApplied after index selection`,510,30);
-  add('enrollment','Observation','stage',d.enrollment?`${d.baseline} days before · ${d.followup} days after\nMaximum gap ${d.gap} days\n${d.rx?'Medical + drug coverage required':'Medical coverage required'}`:'Enrollment optional',510,250);
+  add('index',d.comparison?'Treatment index':'Index event','event',`${d.indexOrder==='LAST'?'Last':'First'} ${catalog.domains[d.index.domain].label}\n${d.index.codes||'Choose index codes'}\n${d.start} to ${d.end}`,270,30);
+  if(d.comparison)add('controlIndex','Control index','event',`${d.indexOrder==='LAST'?'Last':'First'} ${catalog.domains[d.comparison.controlIndex.domain].label}\n${d.comparison.controlIndex.codes||'Choose control codes'}\n${d.comparison.start} to ${d.comparison.end}`,270,250);
+  add('demographics','Demographics','stage',`Age at index ${d.ageMin}–${d.ageMax}\n${d.sex==='ALL'?'All recorded sex values':d.sex==='M'?'Male':d.sex==='F'?'Female':d.sex}\nApplied after index selection`,510,d.comparison?140:30);
+  add('enrollment','Observation','stage',d.enrollment?`${d.baseline} days before · ${d.followup} days after\nMaximum gap ${d.gap} days\n${d.rx?'Medical + drug coverage required':'Medical coverage required'}`:'Enrollment optional',510,d.comparison?350:250);
   let leaf=0;
   function branch(group,depth){
     const start=leaf;
     for(const child of group.children){
       if(typeof child==='number'){
         const r=d.rules[child];
-        add(`r${child}`,`Criterion ${child+1}`,r.mode==='EXCLUDE'?'exclude':'event',`${r.mode==='EXCLUDE'?'Exclude':'Require'} · ${catalog.domains[r.domain].label}\n${r.codes||'Choose codes'}\n≥${r.minDays} day(s) · window ${r.from} to ${r.to}`,30+leaf*240,470+depth*220);leaf++;
+        add(`r${child}`,`Criterion ${child+1}`,r.mode==='EXCLUDE'?'exclude':'event',`${r.mode==='EXCLUDE'?'Exclude':'Require'} · ${catalog.domains[r.domain].label}\n${r.codes||'Choose codes'}\n≥${r.minDays} day(s) · window ${r.from} to ${r.to}`,30+leaf*240,(d.comparison?690:470)+depth*220);leaf++;
       }else branch(child,depth+1);
       edges.push([group.id,typeof child==='number'?`r${child}`:child.id]);
     }
     if(leaf===start)leaf++;
-    add(group.id,group.id===tree.id?'Eligibility tree':`Group ${group.id.slice(1)}`,'group',`${group.op==='AND'?'AND · every condition':'OR · any condition'}\n${group.children.length} connected item(s)`,group.id===tree.id?270:30+(start+leaf-1)*120,group.id===tree.id?250:250+depth*220);
+    add(group.id,group.id===tree.id?'Eligibility tree':`Group ${group.id.slice(1)}`,'group',`${group.op==='AND'?'AND · every condition':'OR · any condition'}\n${group.children.length} connected item(s)`,group.id===tree.id?270:30+(start+leaf-1)*120,group.id===tree.id?(d.comparison?470:250):(d.comparison?470:250)+depth*220);
   }
   branch(tree,0);
   const finalRow=Math.max(...nodes.map(n=>n.y+HEIGHT))+70;
-  add('covariates','Baseline covariates','stage',`${d.covariates.length} code-based feature${d.covariates.length===1?'':'s'}\nFlags and distinct-day counts\nCalculated after eligibility`,30,finalRow);
+  add('covariates',d.comparison?'Treatment/control covariates':'Baseline covariates','stage',`${d.covariates.length} code-based feature${d.covariates.length===1?'':'s'}\nFlags and distinct-day counts\nCalculated after eligibility`,30,finalRow);
   add('output','Selected population','stage',`One row per person\n${d.outputs.length?d.outputs.join(', ')+' extracts':'Cohort and audit tables'}\nCounts available after SAS execution`,270,finalRow);
   edges.push(['population','index'],['index','demographics'],['demographics','enrollment'],['enrollment',tree.id]);
+  if(d.comparison)edges.push(['population','controlIndex'],['controlIndex','demographics']);
   edges.push([tree.id,'covariates'],['covariates','output']);
   return {nodes,edges,tree,width:Math.max(760,...nodes.map(n=>n.x+WIDTH+40)),height:Math.max(680,...nodes.map(n=>n.y+HEIGHT+60))};
 }
@@ -75,13 +78,16 @@ export function bindTree(container,d,catalog,{changed,refresh,addRule,removeRule
   const sourceChecks=(rule,index)=>`<div class="tree-field"><span class="field-label">Search these tables</span><div class="tree-checks">${domains[rule.domain].map(source=>`<label><input type="checkbox" data-tree-source="${index}" value="${source}" ${rule.sources.includes(source)?'checked':''}>${esc(catalog.tables[source].label)}</label>`).join('')}</div></div>`;
   const encounterChecks=(rule,index)=>rule.domain!=='NDC'?`<div class="tree-field"><span class="field-label">Encounter types</span><div class="tree-checks">${Object.entries(ENC_TYPES).map(([value,label])=>`<label><input type="checkbox" data-tree-enc="${index}" value="${value}" ${rule.encTypes.includes(value)?'checked':''}>${value} · ${esc(label)}</label>`).join('')}</div></div>`:'';
   const ruleFields=(rule,index)=>`<div class="tree-form"><div class="tree-field-grid">${selectField('Code system','rule','domain',rule.domain,codeChoices,index)}${index===-1?selectField('Index date','cohort','indexOrder',d.indexOrder,[['FIRST','First matching event'],['LAST','Last matching event']]):selectField('Eligibility','rule','mode',rule.mode,[['INCLUDE','Include matching people'],['EXCLUDE','Exclude matching people']],index)}</div>${index===-1?`<div class="tree-field-grid">${field('Index dates from','cohort','start',d.start,'date')}${field('Through','cohort','end',d.end,'date')}</div>`:`<div class="tree-field-grid three">${field('From day','rule','from',rule.from,'number','step="1"',index)}${field('Through day','rule','to',rule.to,'number','step="1"',index)}${field('Minimum days','rule','minDays',rule.minDays,'number','min="1" step="1"',index)}</div>`}<div class="tree-field"><label for="tree-rule-${index}-codes">Codes</label><textarea id="tree-rule-${index}-codes" data-tree-model="rule" data-tree-index="${index}" data-tree-key="codes" rows="3" placeholder="Codes separated by commas; * for a prefix">${esc(rule.codes)}</textarea><button type="button" class="button small" data-tree-browse="${index}">Browse code catalog</button></div>${sourceChecks(rule,index)}${encounterChecks(rule,index)}</div>`;
+  const controlFields=()=>`<div class="tree-form"><p class="hint">The first/last index setting is shared with treatment. If both qualify, ${d.comparison.overlap==='EXCLUDE'?'exclude the person':'the earlier candidate date wins; treatment wins a tie'}.</p><div class="tree-field-grid">${field('Control dates from','comparison','start',d.comparison.start,'date')}${field('Through','comparison','end',d.comparison.end,'date')}</div>${selectField('If both groups qualify','comparison','overlap',d.comparison.overlap,[['EARLIEST','Earlier candidate wins'],['EXCLUDE','Exclude overlap']])}${selectField('Code system','control','domain',d.comparison.controlIndex.domain,codeChoices)}<div class="tree-field"><label for="tree-control-codes">Codes</label><textarea id="tree-control-codes" data-tree-model="control" data-tree-key="codes" rows="3">${esc(d.comparison.controlIndex.codes)}</textarea><button type="button" class="button small" data-tree-browse="-2">Browse code catalog</button></div>${sourceChecks(d.comparison.controlIndex,-2)}${encounterChecks(d.comparison.controlIndex,-2)}</div>`;
   const covariateFields=()=>`<div class="tree-form"><p class="hint">These flags describe selected people and do not change eligibility.</p>${d.covariates.map((cov,index)=>`<details class="tree-covariate" open><summary>${esc(cov.label||cov.key||`Covariate ${index+1}`)}</summary><div class="tree-field-grid">${field('Variable key','cov','key',cov.key,'text','maxlength="20"',index)}${field('Display label','cov','label',cov.label,'text','maxlength="80"',index)}</div>${selectField('Code system','cov','domain',cov.domain,Object.keys(CDM_DOMAINS).map(key=>[key,catalog.domains[key].label]),index)}<div class="tree-field"><label for="tree-cov-${index}-codes">Codes</label><textarea id="tree-cov-${index}-codes" data-tree-model="cov" data-tree-index="${index}" data-tree-key="codes" rows="2">${esc(cov.codes)}</textarea><button type="button" class="button small" data-tree-cov-browse="${index}">Browse code catalog</button></div><div class="tree-field-grid three">${field('From day','cov','from',cov.from,'number','step="1"',index)}${field('Through day','cov','to',cov.to,'number','step="1"',index)}${field('Minimum days','cov','minDays',cov.minDays,'number','min="1" step="1"',index)}</div>${cov.domain==='NDC'?'':`<div class="tree-field"><span class="field-label">Encounter types</span><div class="tree-checks">${Object.entries(ENC_TYPES).map(([value,label])=>`<label><input type="checkbox" data-tree-cov-enc="${index}" value="${value}" ${cov.encTypes.includes(value)?'checked':''}>${value} · ${esc(label)}</label>`).join('')}</div></div>`}<button type="button" class="button small danger" data-tree-cov-remove="${index}">Remove covariate</button></details>`).join('')||'<p class="hint">No baseline covariates selected.</p>'}<button type="button" class="button full-button" data-tree="add-covariate" ${d.covariates.length>=20?'disabled':''}>+ Add covariate</button></div>`;
   const outputFields=()=>`<div class="tree-form"><div class="tree-field"><span class="field-label">Extract these tables</span><div class="tree-checks">${Object.keys(catalog.tables).map(table=>`<label><input type="checkbox" data-tree-output="${table}" ${d.outputs.includes(table)?'checked':''}>${esc(catalog.tables[table].label)}</label>`).join('')}</div></div><div class="tree-field-grid">${field('Extract days before index','cohort','extractBefore',d.extractBefore,'number','min="0" step="1"')}${field('Days after index','cohort','extractAfter',d.extractAfter,'number','min="0" step="1"')}</div><details class="tree-advanced"><summary>SAS checkpoints and add-on code</summary>${selectField('Run through','cohort','stopAfter',d.stopAfter,[['INDEX','Index selection'],['ELIGIBILITY','Eligibility'],['DELIVER','Final data cut']])}<div class="tree-field"><label for="tree-after-index">SAS after index</label><textarea id="tree-after-index" data-tree-model="cohort" data-tree-key="afterIndexSas" rows="3">${esc(d.afterIndexSas)}</textarea></div><div class="tree-field"><label for="tree-after-eligibility">SAS after eligibility</label><textarea id="tree-after-eligibility" data-tree-model="cohort" data-tree-key="afterEligibilitySas" rows="3">${esc(d.afterEligibilitySas)}</textarea></div></details><details class="tree-advanced"><summary>SAS table mappings</summary>${field('Input folder (optional)','cohort','inputPath',d.inputPath)}${Object.keys(catalog.tables).map(table=>field(`${table} · ${catalog.tables[table].label}`,'map',table,d.mapping[table])).join('')}</details></div>`;
   function inspector(){
     const node=model.nodes.find(n=>n.id===selected),group=groupsIn(treeFor(d)).find(g=>g.id===selected);
     const isRule=/^r\d+$/.test(selected),parent=groupsIn(treeFor(d)).find(g=>g.children.some(child=>typeof child==='number'?`r${child}`===selected:child.id===selected));
+    const controlContent=selected==='controlIndex'?controlFields():'';
+    const scopeContent=selected==='covariates'&&d.comparison?`<div class="tree-form"><h4>Covariate groups</h4>${d.covariates.map((cov,index)=>selectField(cov.label||cov.key,'cov','arm',cov.arm||'BOTH',[['BOTH','Shared'],['TREATMENT','Treatment'],['CONTROL','Control']],index)).join('')}</div>`:'';
     const content=selected==='population'?`<div class="tree-form">${field('Cohort name','cohort','name',d.name)}<div class="tree-field-grid">${field('Delivery start year','cohort','yearStart',d.yearStart,'number','min="1900" max="2100"')}${field('End year','cohort','yearEnd',d.yearEnd,'number','min="1900" max="2100"')}</div></div>`:selected==='index'?ruleFields(d.index,-1):isRule?ruleFields(d.rules[Number(selected.slice(1))],Number(selected.slice(1))):selected==='demographics'?`<div class="tree-form"><div class="tree-field-grid">${field('Minimum age','cohort','ageMin',d.ageMin,'number','min="0" step="1"')}${field('Maximum age','cohort','ageMax',d.ageMax,'number','min="0" step="1"')}</div>${selectField('Recorded sex','cohort','sex',d.sex,[['ALL','Any'],['M','Male'],['F','Female'],['A','Ambiguous'],['U','Unknown']])}</div>`:selected==='enrollment'?`<div class="tree-form"><label class="tree-toggle"><input type="checkbox" data-tree-model="cohort" data-tree-key="enrollment" ${d.enrollment?'checked':''}>Require medical coverage</label><div class="tree-field-grid three">${field('Days before','cohort','baseline',d.baseline,'number','min="0" step="1"')}${field('Days after','cohort','followup',d.followup,'number','min="0" step="1"')}${field('Maximum gap','cohort','gap',d.gap,'number','min="0" step="1"')}</div><label class="tree-toggle"><input type="checkbox" data-tree-model="cohort" data-tree-key="rx" ${d.rx?'checked':''} ${!d.enrollment?'disabled':''}>Require drug coverage</label></div>`:selected==='covariates'?covariateFields():selected==='output'?outputFields():'';
-    $('#tree-inspector').innerHTML=`<p class="eyebrow">EDIT SELECTED CARD</p><h3>${esc(node.title)}</h3><p class="hint">${esc(node.body).replaceAll('\n','<br>')}</p>${content}${group?`<label for="tree-operator">Combine children</label><select id="tree-operator"><option value="AND" ${group.op==='AND'?'selected':''}>AND · every condition</option><option value="OR" ${group.op==='OR'?'selected':''}>OR · any condition</option></select>`:''}
+    $('#tree-inspector').innerHTML=`<p class="eyebrow">EDIT SELECTED CARD</p><h3>${esc(node.title)}</h3><p class="hint">${esc(node.body).replaceAll('\n','<br>')}</p>${scopeContent}${controlContent||content}${group?`<label for="tree-operator">Combine children</label><select id="tree-operator"><option value="AND" ${group.op==='AND'?'selected':''}>AND · every condition</option><option value="OR" ${group.op==='OR'?'selected':''}>OR · any condition</option></select>`:''}
       ${parent?`<label for="tree-parent">Connected to</label><select id="tree-parent">${groupsIn(treeFor(d)).filter(g=>g.id!==selected).map(g=>`<option value="${g.id}" ${g.id===parent.id?'selected':''}>${g.id===model.tree.id?'Eligibility tree':'Group '+g.id.slice(1)} · ${g.op}</option>`).join('')}</select><p class="hint">Changing the parent reconnects this branch.</p>`:''}
       <label for="tree-note">Design note</label><textarea id="tree-note" maxlength="4000" rows="6" placeholder="Rationale, assumptions, or reporting notes">${esc(d.graph.notes[selected]||'')}</textarea><p class="hint">Notes appear in the study population protocol. Notes do not change selection logic.</p>
       ${isRule||parent&&group?'<button class="button danger full-button" data-tree="remove">Remove card</button>':''}<p id="tree-message" class="hint" role="status"></p>`;
@@ -108,7 +114,7 @@ export function bindTree(container,d,catalog,{changed,refresh,addRule,removeRule
   }
   function editValue(el){
     const kind=el.dataset.treeModel,key=el.dataset.treeKey,index=Number(el.dataset.treeIndex);
-    const target=kind==='rule'?(index===-1?d.index:d.rules[index]):kind==='cov'?d.covariates[index]:kind==='map'?d.mapping:d;
+    const target=kind==='rule'?(index===-1?d.index:d.rules[index]):kind==='control'?d.comparison.controlIndex:kind==='comparison'?d.comparison:kind==='cov'?d.covariates[index]:kind==='map'?d.mapping:d;
     if(!target||!key)return;
     target[key]=el.type==='checkbox'?el.checked:el.type==='number'?(el.value===''?NaN:Number(el.value)):el.value;
     if(kind==='cohort'&&!d.enrollment)d.rx=false;
@@ -160,13 +166,17 @@ export function bindTree(container,d,catalog,{changed,refresh,addRule,removeRule
     if(e.target.id==='tree-operator'){d.logic=structuredClone(treeFor(d));groupsIn(d.logic).find(g=>g.id===selected).op=e.target.value;changed();refresh();}
     if(e.target.id==='tree-zoom'){zoom=Number(e.target.value);refresh();}
     const el=e.target;
-    if(el.dataset.treeSource!==undefined){const rule=Number(el.dataset.treeSource)===-1?d.index:d.rules[Number(el.dataset.treeSource)];rule.sources=el.checked?[...rule.sources,el.value]:rule.sources.filter(value=>value!==el.value);changed();reflect();return;}
-    if(el.dataset.treeEnc!==undefined){const rule=Number(el.dataset.treeEnc)===-1?d.index:d.rules[Number(el.dataset.treeEnc)];rule.encTypes=el.checked?[...rule.encTypes,el.value]:rule.encTypes.filter(value=>value!==el.value);changed();reflect();return;}
+    if(el.dataset.treeSource!==undefined){const index=Number(el.dataset.treeSource),rule=index===-1?d.index:index===-2?d.comparison.controlIndex:d.rules[index];rule.sources=el.checked?[...rule.sources,el.value]:rule.sources.filter(value=>value!==el.value);changed();reflect();return;}
+    if(el.dataset.treeEnc!==undefined){const index=Number(el.dataset.treeEnc),rule=index===-1?d.index:index===-2?d.comparison.controlIndex:d.rules[index];rule.encTypes=el.checked?[...rule.encTypes,el.value]:rule.encTypes.filter(value=>value!==el.value);changed();reflect();return;}
     if(el.dataset.treeCovEnc!==undefined){const cov=d.covariates[Number(el.dataset.treeCovEnc)];cov.encTypes=el.checked?[...cov.encTypes,el.value]:cov.encTypes.filter(value=>value!==el.value);changed();reflect();return;}
     if(el.dataset.treeOutput!==undefined){d.outputs=el.checked?[...d.outputs,el.dataset.treeOutput]:d.outputs.filter(value=>value!==el.dataset.treeOutput);changed();reflect();return;}
     if(el.dataset.treeModel){
       if(el.dataset.treeModel==='rule'&&el.dataset.treeKey==='domain'){
         const rule=Number(el.dataset.treeIndex)===-1?d.index:d.rules[Number(el.dataset.treeIndex)];
+        rule.sources=domains[rule.domain].slice(0,1);rule.codes='';rule.encTypes=rule.domain==='NDC'?[]:Object.keys(ENC_TYPES);
+      }
+      if(el.dataset.treeModel==='control'&&el.dataset.treeKey==='domain'){
+        const rule=d.comparison.controlIndex;
         rule.sources=domains[rule.domain].slice(0,1);rule.codes='';rule.encTypes=rule.domain==='NDC'?[]:Object.keys(ENC_TYPES);
       }
       if(el.dataset.treeModel==='cov'&&el.dataset.treeKey==='domain'){
