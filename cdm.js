@@ -1,5 +1,5 @@
-import { treeFor, logicText, logicIssues, usesOr } from './logic.js?v=a9cade748050';
-import { parseRunFolder } from './paths.js?v=a9cade748050';
+import { treeFor, logicText, logicIssues, usesOr } from './logic.js?v=2a7380fd6912';
+import { parseRunFolder } from './paths.js?v=2a7380fd6912';
 
 export const schemaId = 'mini-sentinel-cdm-3.0-v1';
 export const TABLES = ['DEM','DEA','ENR','ENC','DIA','PRO','DIS'];

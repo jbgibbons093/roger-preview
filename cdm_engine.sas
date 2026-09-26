@@ -124,11 +124,20 @@
         declare hash selected(dataset:"work._rg_codes(where=(rule_id=&rule_id))");
         selected.defineKey('code','match_type');
         selected.defineDone();
+        %if &rule_id ne 1 %then %do;
+          /* Eligibility rules and covariates only need events for current candidates. */
+          declare hash candidates(dataset:"work._rg_cohort(keep=PatID)");
+          candidates.defineKey('PatID');
+          candidates.defineDone();
+        %end;
         call missing(code,match_type);
       end;
       set &ds(keep=&keep);
       where &dt >= &lower and &dt <= &upper and (&filter);
       if missing(PatID) or missing(&dt) then delete;
+      %if &rule_id ne 1 %then %do;
+        if candidates.check() ne 0 then delete;
+      %end;
       %if &domain ne NDC %then %do;
         if findw("&enc_types",strip(EncType),' ')=0 then delete;
       %end;
