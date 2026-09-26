@@ -1,4 +1,4 @@
-const stageNames={connection:'Server sign-on',preflight:'CDM preflight',index:'Index selection',eligibility:'Eligibility',covariates:'Covariates',delivery:'Final delivery'};
+const stageNames={connection:'Server sign-on',preflight:'CDM preflight',index:'Index selection',eligibility:'Eligibility',covariates:'Covariates',outcomes:'Outcomes',delivery:'Final delivery'};
 
 export function elapsedLabel(milliseconds){
   const seconds=Math.max(0,Math.floor(milliseconds/1000));
@@ -7,7 +7,7 @@ export function elapsedLabel(milliseconds){
 }
 
 export function lastReportedStage(log){
-  const lines=String(log||'').match(/^ROGER_PROGRESS stage=(connection|preflight|index|eligibility|covariates|delivery) event=(start|complete)\s*$/gm);
+  const lines=String(log||'').match(/^ROGER_PROGRESS stage=(connection|preflight|index|eligibility|covariates|outcomes|delivery) event=(start|complete)\s*$/gm);
   if(!lines?.length)return '';
   const [,stage,event]=/^ROGER_PROGRESS stage=(\w+) event=(\w+)/.exec(lines.at(-1));
   return `${stageNames[stage]} ${event==='complete'?'completed':'started'}`;

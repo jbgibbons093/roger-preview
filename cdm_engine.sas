@@ -240,8 +240,8 @@
       %abort cancel;
     %end;
   %end;
-  %do k=1 %to 12;
-    %let table=%scan(cohort attrition definition rules code_sets input_manifest covariate_specs diagnostics counts missingness extract_counts cohort_preview,&k);
+  %do k=1 %to 14;
+    %let table=%scan(cohort attrition definition rules code_sets input_manifest covariate_specs predictor_specs outcome_specs diagnostics counts missingness extract_counts cohort_preview,&k);
     %if %sysfunc(exist(&outlib..&table)) or %sysfunc(exist(&outlib..&table,VIEW)) %then %do;
       %put ERROR: &outlib..&table already exists. Use a fresh output library.;
       %abort cancel;
@@ -280,6 +280,32 @@
   quit;
   data work._rg_cohort; set work._rg_next; run;
   %rg_checkpoint(covariate &key);
+%mend;
+
+%macro rg_outcome(outcome_id,domain,table,enc_types,lower,upper,key,complete);
+  %rg_events(&outcome_id,&domain,&table,&enc_types,
+    lower=%sysfunc(sum(&search_index_start,&lower)),upper=%sysfunc(sum(&search_index_end,&upper)));
+  proc sql;
+    create table work._rg_outcome_hits as
+    select c.PatID,min(e.event_date) as first_date format=yymmdd10.
+    from work._rg_cohort c left join work._rg_deaths z on c.PatID=z.PatID
+      left join work._rg_events e
+      on c.PatID=e.PatID and e.event_date>=c.index_date+&lower
+      and e.event_date<=c.index_date+&upper
+      and (missing(z.death_date) or e.event_date<=z.death_date)
+    group by c.PatID;
+    create table work._rg_next as
+    select c.*,h.first_date as out_&key._date format=yymmdd10.,
+      (not missing(h.first_date)) as out_&key._hit,
+      case when &complete=1 and (missing(z.death_date) or z.death_date>=c.index_date+&upper)
+        then 1 else 0 end as out_&key._obs,
+      case when not missing(h.first_date) then 1
+        when calculated out_&key._obs=1 then 0 else . end as out_&key
+    from work._rg_cohort c left join work._rg_outcome_hits h on c.PatID=h.PatID
+      left join work._rg_deaths z on c.PatID=z.PatID;
+  quit;
+  data work._rg_cohort; set work._rg_next; run;
+  %rg_checkpoint(outcome &key);
 %mend;
 
 %macro rg_index_stage;
@@ -344,6 +370,7 @@
     data work._rg_cohort;
       set work._rg_cohort;
       index_date=event_date;
+      treatment_flag=(index_arm='TREATMENT');
       format index_date yymmdd10.;
       rename EncounterID=index_encounter source=index_source source_file=index_file source_year=index_file_year code=index_code;
       drop event_date arm_rank;
@@ -490,6 +517,8 @@
   data &outlib..code_sets; set work._rg_codes; run;
   data &outlib..input_manifest; set work._rg_manifest; run;
   data &outlib..covariate_specs; set work._rg_covariates; run;
+  data &outlib..predictor_specs; set work._rg_predictors; run;
+  data &outlib..outcome_specs; set work._rg_outcomes; run;
   data &outlib..extract_counts; set work._rg_extract_counts; run;
   data &outlib..cohort_preview;
     set work._rg_cohort(obs=200 drop=PatID Birth_Date index_encounter);
@@ -531,6 +560,7 @@
     dimension='Index month'; value=put(index_date,yymmn6.); output;
     dimension='Age band'; value=cats(put(floor(age_at_index/10)*10,3.),'s'); output;
     %rg_covariate_counts;
+    %rg_outcome_counts;
     keep dimension value;
   run;
   proc sql;
@@ -550,6 +580,7 @@
     variable='age_at_index'; is_missing=missing(age_at_index); output;
     variable='index_date'; is_missing=missing(index_date); output;
     %rg_covariate_missing;
+    %rg_outcome_missing;
     keep variable is_missing;
   run;
   proc sql;
@@ -626,6 +657,10 @@
   %rg_build_covariates;
   %rg_stage_integrity(covariates);
   %rg_progress(covariates,complete);
+  %rg_progress(outcomes,start);
+  %rg_build_outcomes;
+  %rg_stage_integrity(outcomes);
+  %rg_progress(outcomes,complete);
   %rg_progress(delivery,start);
   %rg_delivery_stage;
   %rg_progress(delivery,complete);

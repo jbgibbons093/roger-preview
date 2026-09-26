@@ -1,6 +1,6 @@
-import { readDefinition, parseCodes } from './cohort.js?v=20580f35e743';
-import { treeFor, logicText } from './logic.js?v=20580f35e743';
-import { TABLES } from './cdm.js?v=20580f35e743';
+import { readDefinition, parseCodes } from './cohort.js?v=dce5f8e2fe76';
+import { treeFor, logicText } from './logic.js?v=dce5f8e2fe76';
+import { TABLES } from './cdm.js?v=dce5f8e2fe76';
 
 export const SAVED_COHORTS_KEY='roger.saved.cohorts.v2';
 export const LEGACY_SAVED_COHORTS_KEY='roger.saved.cohorts.v1';
@@ -124,6 +124,17 @@ function compareFields(value){
     event(name,cov);
     add(`${name} · day window`,`${cov.from} through ${cov.to}`);
     add(`${name} · minimum distinct days`,cov.minDays);
+    add(`${name} · predictor`,cov.predictor===true?'Yes':'No');
+  });
+  add('Age predictor',d.predictors?.age===false?'No':'Yes');
+  add('Sex predictor',d.predictors?.sex===false?'No':'Yes');
+  add('Outcome count',d.outcomes?.length||0);
+  (d.outcomes||[]).forEach((out,i)=>{
+    const name=`Outcome ${i+1}`;
+    add(`${name} · key`,out.key);
+    add(`${name} · label`,out.label);
+    event(name,out);
+    add(`${name} · day window`,`${out.from} through ${out.to}`);
   });
   add('Extract tables',list(d.outputs));
   add('Extract window',`${d.extractBefore} days before through ${d.extractAfter} days after index`);

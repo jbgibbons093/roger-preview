@@ -107,6 +107,8 @@ datalines4;
 007|orphan|15OCT2015|AV|E11.9|10
 008|orphan|01OCT2015|AV|E11.9|10
 008|orphan|15OCT2015|AV|E11.9|10
+001|outcome|01NOV2015|AV|I10|10
+0000000000000000000002|index-day-only|15OCT2015|AV|I10|10
 001|orphan|01SEP2015|AV|250.00|09
 ;;;;
 run;
@@ -170,7 +172,7 @@ options errorabend;
 %let sex=ALL;
 %let enrollment=1;
 %let baseline=365;
-%let followup=0;
+%let followup=30;
 %let gap=0;
 %let rx=1;
 %let extract_before=365;
@@ -217,7 +219,7 @@ data work._rg_definition;
   sex='ALL';
   enrollment=1;
   baseline=365;
-  followup=0;
+  followup=30;
   gap=0;
   rx=1;
   extract_before=365;
@@ -253,14 +255,38 @@ datalines4;
 4|J0178|EXACT
 5|00000000001|EXACT
 1001|99213|EXACT
+1002|25000|EXACT
+2001|I10|EXACT
+2002|I10|EXACT
 ;;;;
 run;
 data work._rg_covariates;
-  length cov_id min_days lower_day upper_day 8 key $20 label $80 domain $5 sources $3 enc_types $14 arm $10;
+  length cov_id min_days lower_day upper_day predictor 8 key $20 label $80 domain $5 sources $3 enc_types $14 arm $10;
   infile datalines4 dlm='|' dsd truncover;
-  input cov_id key :$20. label :$80. domain :$5. sources :$3. min_days lower_day upper_day enc_types :$14. arm :$10.;
+  input cov_id key :$20. label :$80. domain :$5. sources :$3. min_days lower_day upper_day enc_types :$14. arm :$10. predictor;
 datalines4;
-1001|office_visit|Office visit|CPT|PRO|1|-30|0|AV ED IP IS OA|BOTH
+1001|office_visit|Office visit|CPT|PRO|1|-30|0|AV ED IP IS OA|BOTH|0
+1002|prior_dm|Prior diabetes|DX9|DIA|1|-365|-1|AV ED IP IS OA|BOTH|1
+;;;;
+run;
+data work._rg_outcomes;
+  length outcome_id lower_day upper_day full_followup 8 key $20 label $80 domain $5 sources $3 enc_types $14;
+  infile datalines4 dlm='|' dsd truncover;
+  input outcome_id key :$20. label :$80. domain :$5. sources :$3. lower_day upper_day enc_types :$14. full_followup;
+datalines4;
+2001|event30|Thirty-day event|DX|DIA|1|30|AV ED IP IS OA|1
+2002|event45|Forty-five-day event|DX|DIA|1|45|AV ED IP IS OA|0
+;;;;
+run;
+data work._rg_predictors;
+  length variable $32 source $12 selected 8;
+  infile datalines4 dlm='|' dsd truncover;
+  input variable :$32. source :$12. selected;
+datalines4;
+age_at_index|DEM|1
+Sex|DEM|0
+cov_office_visit|PRO|0
+cov_prior_dm|DIA|1
 ;;;;
 run;
 data work._rg_manifest;
@@ -291,13 +317,34 @@ run;
 
 %macro rg_build_covariates;
   %rg_covariate(1001,CPT,PRO,AV ED IP IS OA,-30,0,1,office_visit,BOTH);
+  %rg_covariate(1002,DX9,DIA,AV ED IP IS OA,-365,-1,1,prior_dm,BOTH);
+%mend;
+
+%macro rg_build_outcomes;
+  proc sql;
+    create table work._rg_deaths as
+    select PatID,min(Death_Date) as death_date format=yymmdd10.
+    from &files_DEA where not missing(Death_Date) group by PatID;
+  quit;
+  %rg_outcome(2001,DX,DIA,AV ED IP IS OA,1,30,event30,1);
+  %rg_outcome(2002,DX,DIA,AV ED IP IS OA,1,45,event45,0);
 %mend;
 
 %macro rg_covariate_counts;
   dimension='Covariate: office_visit'; value=ifc(missing(cov_office_visit),'Not applicable',ifc(cov_office_visit=1,'Yes','No')); output;
+  dimension='Covariate: prior_dm'; value=ifc(missing(cov_prior_dm),'Not applicable',ifc(cov_prior_dm=1,'Yes','No')); output;
 %mend;
 %macro rg_covariate_missing;
   variable='cov_office_visit'; is_missing=missing(cov_office_visit); output;
+  variable='cov_prior_dm'; is_missing=missing(cov_prior_dm); output;
+%mend;
+%macro rg_outcome_counts;
+  dimension='Outcome: event30'; value=ifc(missing(out_event30),'Incomplete follow-up',ifc(out_event30=1,'Event','No event')); output;
+  dimension='Outcome: event45'; value=ifc(missing(out_event45),'Incomplete follow-up',ifc(out_event45=1,'Event','No event')); output;
+%mend;
+%macro rg_outcome_missing;
+  variable='out_event30'; is_missing=missing(out_event30); output;
+  variable='out_event45'; is_missing=missing(out_event45); output;
 %mend;
 
 /* ROGER Mini-Sentinel CDM v3.0 engine 1.0. SAS 9.4.
@@ -542,8 +589,8 @@ run;
       %abort cancel;
     %end;
   %end;
-  %do k=1 %to 12;
-    %let table=%scan(cohort attrition definition rules code_sets input_manifest covariate_specs diagnostics counts missingness extract_counts cohort_preview,&k);
+  %do k=1 %to 14;
+    %let table=%scan(cohort attrition definition rules code_sets input_manifest covariate_specs predictor_specs outcome_specs diagnostics counts missingness extract_counts cohort_preview,&k);
     %if %sysfunc(exist(&outlib..&table)) or %sysfunc(exist(&outlib..&table,VIEW)) %then %do;
       %put ERROR: &outlib..&table already exists. Use a fresh output library.;
       %abort cancel;
@@ -582,6 +629,32 @@ run;
   quit;
   data work._rg_cohort; set work._rg_next; run;
   %rg_checkpoint(covariate &key);
+%mend;
+
+%macro rg_outcome(outcome_id,domain,table,enc_types,lower,upper,key,complete);
+  %rg_events(&outcome_id,&domain,&table,&enc_types,
+    lower=%sysfunc(sum(&search_index_start,&lower)),upper=%sysfunc(sum(&search_index_end,&upper)));
+  proc sql;
+    create table work._rg_outcome_hits as
+    select c.PatID,min(e.event_date) as first_date format=yymmdd10.
+    from work._rg_cohort c left join work._rg_deaths z on c.PatID=z.PatID
+      left join work._rg_events e
+      on c.PatID=e.PatID and e.event_date>=c.index_date+&lower
+      and e.event_date<=c.index_date+&upper
+      and (missing(z.death_date) or e.event_date<=z.death_date)
+    group by c.PatID;
+    create table work._rg_next as
+    select c.*,h.first_date as out_&key._date format=yymmdd10.,
+      (not missing(h.first_date)) as out_&key._hit,
+      case when &complete=1 and (missing(z.death_date) or z.death_date>=c.index_date+&upper)
+        then 1 else 0 end as out_&key._obs,
+      case when not missing(h.first_date) then 1
+        when calculated out_&key._obs=1 then 0 else . end as out_&key
+    from work._rg_cohort c left join work._rg_outcome_hits h on c.PatID=h.PatID
+      left join work._rg_deaths z on c.PatID=z.PatID;
+  quit;
+  data work._rg_cohort; set work._rg_next; run;
+  %rg_checkpoint(outcome &key);
 %mend;
 
 %macro rg_index_stage;
@@ -646,6 +719,7 @@ run;
     data work._rg_cohort;
       set work._rg_cohort;
       index_date=event_date;
+      treatment_flag=(index_arm='TREATMENT');
       format index_date yymmdd10.;
       rename EncounterID=index_encounter source=index_source source_file=index_file source_year=index_file_year code=index_code;
       drop event_date arm_rank;
@@ -792,6 +866,8 @@ run;
   data &outlib..code_sets; set work._rg_codes; run;
   data &outlib..input_manifest; set work._rg_manifest; run;
   data &outlib..covariate_specs; set work._rg_covariates; run;
+  data &outlib..predictor_specs; set work._rg_predictors; run;
+  data &outlib..outcome_specs; set work._rg_outcomes; run;
   data &outlib..extract_counts; set work._rg_extract_counts; run;
   data &outlib..cohort_preview;
     set work._rg_cohort(obs=200 drop=PatID Birth_Date index_encounter);
@@ -833,6 +909,7 @@ run;
     dimension='Index month'; value=put(index_date,yymmn6.); output;
     dimension='Age band'; value=cats(put(floor(age_at_index/10)*10,3.),'s'); output;
     %rg_covariate_counts;
+    %rg_outcome_counts;
     keep dimension value;
   run;
   proc sql;
@@ -852,6 +929,7 @@ run;
     variable='age_at_index'; is_missing=missing(age_at_index); output;
     variable='index_date'; is_missing=missing(index_date); output;
     %rg_covariate_missing;
+    %rg_outcome_missing;
     keep variable is_missing;
   run;
   proc sql;
@@ -928,6 +1006,10 @@ run;
   %rg_build_covariates;
   %rg_stage_integrity(covariates);
   %rg_progress(covariates,complete);
+  %rg_progress(outcomes,start);
+  %rg_build_outcomes;
+  %rg_stage_integrity(outcomes);
+  %rg_progress(outcomes,complete);
   %rg_progress(delivery,start);
   %rg_delivery_stage;
   %rg_progress(delivery,complete);
@@ -961,7 +1043,7 @@ run;
 %roger_cdm_cut;
 
 %macro fixture_assertions;
-  %local actual counts death_count date_errors cov_yes cov_no diag_people count_levels preview_ids h width rc;
+  %local actual counts death_count date_errors cov_yes cov_no diag_people count_levels outcome_event outcome_none outcome_unknown predictor_rows preview_ids h width rc;
   %if &fixture_case ne PASS %then %do;
     %put ERROR: The requested negative fixture failed to abort.; %abort cancel;
   %end;
@@ -974,9 +1056,13 @@ run;
     select count(*) into :cov_no trimmed from work.cohort where PatID='0000000000000000000002' and cov_office_visit=0 and cov_office_visit_days=0;
     select people into :diag_people trimmed from work.diagnostics;
     select count(*) into :count_levels trimmed from work.counts where dimension='Covariate: office_visit';
+    select count(*) into :outcome_event trimmed from work.cohort where PatID='001' and out_event30=1 and out_event30_hit=1 and out_event30_obs=1 and out_event30_date='01NOV2015'd and out_event45=1 and out_event45_obs=0;
+    select count(*) into :outcome_none trimmed from work.cohort where PatID='0000000000000000000002' and out_event30=0 and out_event30_hit=0 and out_event30_obs=1 and missing(out_event30_date);
+    select count(*) into :outcome_unknown trimmed from work.cohort where PatID='0000000000000000000002' and missing(out_event45) and out_event45_hit=0 and out_event45_obs=0;
+    select count(*) into :predictor_rows trimmed from work.predictor_specs where selected=1;
   quit;
-  %if %superq(actual) ne %str(0000000000000000000002|001) or %superq(counts) ne 8 7 4 2 or &death_count ne 1 or &date_errors ne 0 or &cov_yes ne 1 or &cov_no ne 1 or &diag_people ne 2 or &count_levels ne 2 %then %do;
-    %put ERROR: CDM mismatch. IDs=&actual counts=&counts death_count=&death_count date_errors=&date_errors cov_yes=&cov_yes cov_no=&cov_no diag_people=&diag_people count_levels=&count_levels;
+  %if %superq(actual) ne %str(0000000000000000000002|001) or %superq(counts) ne 8 7 4 2 or &death_count ne 1 or &date_errors ne 0 or &cov_yes ne 1 or &cov_no ne 1 or &diag_people ne 2 or &count_levels ne 2 or &outcome_event ne 1 or &outcome_none ne 1 or &outcome_unknown ne 1 or &predictor_rows ne 2 %then %do;
+    %put ERROR: CDM mismatch. IDs=&actual counts=&counts death_count=&death_count date_errors=&date_errors cov_yes=&cov_yes cov_no=&cov_no diag_people=&diag_people count_levels=&count_levels outcome_event=&outcome_event outcome_none=&outcome_none outcome_unknown=&outcome_unknown predictor_rows=&predictor_rows;
     %abort cancel;
   %end;
   %let h=%sysfunc(open(work.cut_DIA_2015,i));
