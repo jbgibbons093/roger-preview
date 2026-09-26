@@ -1,5 +1,5 @@
-import { treeFor, logicText, logicIssues, usesOr } from './logic.js?v=dce5f8e2fe76';
-import { parseRunFolder } from './paths.js?v=dce5f8e2fe76';
+import { treeFor, logicText, logicIssues, usesOr } from './logic.js?v=b247f1c0d48e';
+import { parseRunFolder } from './paths.js?v=b247f1c0d48e';
 
 export const schemaId = 'mini-sentinel-cdm-3.0-v1';
 export const TABLES = ['DEM','DEA','ENR','ENC','DIA','PRO','DIS'];
@@ -116,7 +116,11 @@ export function validate(d,parseCodes){
       const timedOutputs=d.outputs.some(t=>!['DEM','DEA'].includes(t));
       const before=Math.max(d.enrollment?d.baseline:0,timedOutputs?d.extractBefore:0,...d.rules.map(r=>-r.from),...(d.covariates||[]).map(r=>-r.from),0);
       const after=Math.max(d.enrollment?d.followup:0,timedOutputs?d.extractAfter:0,...d.rules.map(r=>r.to),...(d.covariates||[]).map(r=>r.to),...(d.outcomes||[]).map(r=>r.to),0);
-      if(Date.parse(firstIndex)-before*86400000<Date.parse(`${d.yearStart}-01-01`)||Date.parse(lastIndex)+after*86400000>Date.parse(`${d.yearEnd}-12-31`))errors.push('Index dates and all requested observation windows must fit within the delivery years.');
+      const firstDelivery=Date.parse(`${d.yearStart}-01-01`),lastDelivery=Date.parse(`${d.yearEnd}-12-31`);
+      if(Date.parse(firstIndex)-before*86400000<firstDelivery||Date.parse(lastIndex)+after*86400000>lastDelivery){
+        const outcomeBeyond=(d.outcomes||[]).some(r=>Date.parse(lastIndex)+r.to*86400000>lastDelivery);
+        errors.push(outcomeBeyond?'A post-index outcome extends beyond the delivery years. Move the index end date earlier or extend the delivery end year.':'Index dates and all requested observation windows must fit within the delivery years.');
+      }
     }
   }
   return errors;
