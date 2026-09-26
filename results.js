@@ -1,5 +1,5 @@
 // Browser-local inspection of CSV files exported from SAS. Nothing is uploaded or persisted.
-import { parseRunFolder } from './paths.js?v=4cad80d790a0';
+import { parseRunFolder } from './paths.js?v=d3c6c8b02db3';
 export function parseCsv(source,{maxRows=200000}={}){
   if(typeof source!=='string')throw new Error('Expected CSV text.');
   const rows=[];let row=[],cell='',quoted=false;
