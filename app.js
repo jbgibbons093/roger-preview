@@ -1,14 +1,14 @@
-import * as cdm from './cdm.js?v=d3c6c8b02db3';
-import { readDefinition, validateDefinition, connectionIssues, requiredTables, compileSas, parseCodes } from './cohort.js?v=d3c6c8b02db3';
-import { openCodePicker } from './code-picker.js?v=d3c6c8b02db3';
-import { treeFor, groupsIn, logicText, usesOr, removeCriterion } from './logic.js?v=d3c6c8b02db3';
-import { renderTree, bindTree } from './cohort-tree.js?v=d3c6c8b02db3';
-import { selectionProtocol } from './protocol.js?v=d3c6c8b02db3';
-import { parseCsv, previewRows, quickCounts, missingness, compileQuickCount } from './results.js?v=d3c6c8b02db3';
-import { parseRunFolder, parseOutputParent } from './paths.js?v=d3c6c8b02db3';
-import { PROFILE_KEY, DEFAULT_LINK_SCRIPT, createProfile, readProfileStore, profileFromSettings } from './profiles.js?v=d3c6c8b02db3';
-import { SAVED_COHORTS_KEY, RETIRED_COHORTS_KEY, partitionSavedCohorts, upsertSavedCohort, compareDefinitions, comparisonReport } from './saved-cohorts.js?v=d3c6c8b02db3';
-import { elapsedLabel, jobProgressText } from './job-progress.js?v=d3c6c8b02db3';
+import * as cdm from './cdm.js?v=a9cade748050';
+import { readDefinition, validateDefinition, connectionIssues, requiredTables, compileSas, parseCodes } from './cohort.js?v=a9cade748050';
+import { openCodePicker } from './code-picker.js?v=a9cade748050';
+import { treeFor, groupsIn, logicText, usesOr, removeCriterion } from './logic.js?v=a9cade748050';
+import { renderTree, bindTree } from './cohort-tree.js?v=a9cade748050';
+import { selectionProtocol } from './protocol.js?v=a9cade748050';
+import { parseCsv, previewRows, quickCounts, missingness, compileQuickCount } from './results.js?v=a9cade748050';
+import { parseRunFolder, parseOutputParent } from './paths.js?v=a9cade748050';
+import { PROFILE_KEY, DEFAULT_LINK_SCRIPT, createProfile, readProfileStore, profileFromSettings } from './profiles.js?v=a9cade748050';
+import { SAVED_COHORTS_KEY, LEGACY_SAVED_COHORTS_KEY, RETIRED_COHORTS_KEY, partitionSavedCohorts, readSavedCohorts, upsertSavedCohort, compareDefinitions, comparisonReport, definitionSha256 } from './saved-cohorts.js?v=a9cade748050';
+import { elapsedLabel, jobProgressText } from './job-progress.js?v=a9cade748050';
 
 const DRAFT_KEY = 'roger.cohort.cdm.v1', CONNECT_KEY='roger.sasconnect.v1', DESKTOP_KEY='roger.desktop.v1';
 const desktop=window.rogerDesktop||null;
@@ -18,6 +18,7 @@ let desktopSettings={sasExecutable:'',serverUser:'',outputParent:''},desktopJob=
 let profiles=[],activeProfileId='';
 let savedCohorts=[],selectedSavedCohortId='',selectedRunCohortId='',selectedRunProfileId='',sasPathCheck=null,cohortDirty=false;
 let compareLeftId='',compareRightId='';
+let revisionNote='',selectedRevisionNumber=0,savingCohort=false;
 let recentJobs=[],openedRunId='',resultsFolderApproved='';
 let desktopDefaultHost='';
 const TABLES=cdm.TABLES, DOMAINS=cdm.DOMAINS;
@@ -137,7 +138,7 @@ function review() {
     <details class="panel"><summary class="details-toggle">Study population selection protocol</summary><pre class="protocol-preview">${esc(selectionProtocol(definition,catalog))}</pre></details>
     <section class="panel"><div class="panel-head"><div><h2>Generated SAS program</h2><p>The full extraction logic is included in the download.</p></div></div><pre class="code-preview" tabindex="0" aria-label="Generated SAS program">${esc(code)}</pre></section>
     <section class="panel"><div class="panel-head"><div><h2>Cohort attrition</h2><p>Counts will be produced by SAS after execution.</p></div></div><table><thead><tr><th>Selection step</th><th>People remaining</th></tr></thead><tbody><tr><td>${definition.indexOrder==='LAST'?'Last':'First'} matching index event</td><td>Awaiting SAS run</td></tr><tr><td>Demographic requirements</td><td>Awaiting SAS run</td></tr>${definition.enrollment?'<tr><td>Enrollment requirements</td><td>Awaiting SAS run</td></tr>':''}${usesOr(treeFor(definition))?'<tr><td>Combined AND/OR condition tree</td><td>Awaiting SAS run</td></tr>':definition.rules.map((r,i)=>`<tr><td>Criterion ${i+1} · ${r.mode==='INCLUDE'?'Inclusion':'Exclusion'}</td><td>Awaiting SAS run</td></tr>`).join('')}</tbody></table><div class="panel-body"><p class="hint">Final delivery also writes covariate prevalence, index-month and age-band counts, missingness, extract counts, and a 200-row cohort preview. Open the completed CSVs in Diagnostics.</p><button class="button small" data-action="diagnostics">Open diagnostics</button></div></section>
-  </div><aside class="summary panel"><div class="summary-head"><p class="eyebrow">EXPORT PACKAGE</p><h2>${errors.length?'Draft needs work.':'Ready for your SAS workspace.'}</h2></div><div class="summary-body"><p class="review-summary-text" style="font-size:14px">${errors.length?'Fix the definition issues linked in the cohort tree before downloading a runnable SAS program.':'A self-contained SAS 9.4 program with the cohort rules, code lists, selection steps, and requested extracts.'}</p>${mappingIssues.length?`<div class="notice mapping-notice"><strong>${mappingIssues.length} table mappings remain</strong><br>Fill in the mappings in the builder and regenerate the program. SAS stops until mappings are supplied.</div>`:'<div class="notice info mapping-notice">Table names are configured. Confirm their delivery and year range before running.</div>'}<button class="button primary full-button" data-action="export-sas" ${errors.length?'disabled':''}>Download SAS program ↓</button><button class="button full-button" data-action="export-json">Download definition</button><button class="button full-button" data-action="export-protocol">Download selection protocol</button><button class="button subtle full-button" data-action="builder">Back to definition</button><hr><p class="export-meta">The SAS 9.4 synthetic check and institutional schema preflight passed. Review each definition-specific run and its diagnostics.</p><p class="hint">For a first check, <a href="./synthetic_cdm_fixture.sas?v=d3c6c8b02db3" download>download the CDM SAS check</a>. Run it in a separate fresh SAS session before using research data.</p></div></aside></div>`;
+  </div><aside class="summary panel"><div class="summary-head"><p class="eyebrow">EXPORT PACKAGE</p><h2>${errors.length?'Draft needs work.':'Ready for your SAS workspace.'}</h2></div><div class="summary-body"><p class="review-summary-text" style="font-size:14px">${errors.length?'Fix the definition issues linked in the cohort tree before downloading a runnable SAS program.':'A self-contained SAS 9.4 program with the cohort rules, code lists, selection steps, and requested extracts.'}</p>${mappingIssues.length?`<div class="notice mapping-notice"><strong>${mappingIssues.length} table mappings remain</strong><br>Fill in the mappings in the builder and regenerate the program. SAS stops until mappings are supplied.</div>`:'<div class="notice info mapping-notice">Table names are configured. Confirm their delivery and year range before running.</div>'}<button class="button primary full-button" data-action="export-sas" ${errors.length?'disabled':''}>Download SAS program ↓</button><button class="button full-button" data-action="export-json">Download definition</button><button class="button full-button" data-action="export-protocol">Download selection protocol</button><button class="button subtle full-button" data-action="builder">Back to definition</button><hr><p class="export-meta">The SAS 9.4 synthetic check and institutional schema preflight passed. Review each definition-specific run and its diagnostics.</p><p class="hint">For a first check, <a href="./synthetic_cdm_fixture.sas?v=a9cade748050" download>download the CDM SAS check</a>. Run it in a separate fresh SAS session before using research data.</p></div></aside></div>`;
 }
 function codebook() { return cdmCodebook(); }
 function activeProfile(){return profiles.find(profile=>profile.id===activeProfileId);}
@@ -163,19 +164,24 @@ function freshRunPath(){
   definition.outputPath=`${parent}/roger_${stamp}_${crypto.randomUUID().slice(0,4)}`;
   if(!definition.inputPath)definition.inputPath=desktopSourcePath;
 }
-function saveCohort({stay=false,asNew=false}={}){
+async function saveCohort({stay=false,asNew=false}={}){
+  if(savingCohort)return false;
+  savingCohort=true;
   try{
     if(!definition.name.trim())throw new Error('Name the cohort before saving.');
     if(asNew&&savedCohorts.some(item=>item.name.trim().toLowerCase()===definition.name.trim().toLowerCase()))throw new Error('Use a distinct name for the new cohort.');
-    const result=upsertSavedCohort(savedCohorts,asNew?'':selectedSavedCohortId,definition);
+    const author=desktop?(activeProfile()?.name||'Local investigator'):'Browser investigator';
+    const result=await upsertSavedCohort(savedCohorts,asNew?'':selectedSavedCohortId,definition,new Date().toISOString(),{author,note:revisionNote});
     localStorage.setItem(SAVED_COHORTS_KEY,JSON.stringify(result.items));
-    savedCohorts=result.items;selectedSavedCohortId=result.cohort.id;
+    savedCohorts=result.items;selectedSavedCohortId=result.cohort.id;selectedRevisionNumber=result.cohort.revisionNumber;
     localStorage.setItem(DRAFT_KEY,JSON.stringify(definition));
+    revisionNote='';
     cohortDirty=false;document.querySelector('#save-state').textContent='Saved on this device';
     if(stay)render();else setView('saved');
-    toast('Cohort saved to your library.');
+    toast(result.createdRevision?`Cohort revision ${result.cohort.revisionNumber} saved.`:'No definition changes since the last revision.');
     return true;
   }catch(error){toast(`Cohort could not be saved. ${error.message}`);}
+  finally{savingCohort=false;}
   return false;
 }
 function saveAsNewCohort(){
@@ -183,13 +189,13 @@ function saveAsNewCohort(){
   dialog.innerHTML=`<form><h2>Save as a new cohort</h2><p class="hint">Give this copy a distinct name. The current cohort stays in your library.</p><label for="new-cohort-name">New cohort name</label><input id="new-cohort-name" maxlength="120" required value="${esc(`${definition.name} copy`)}"><p class="name-error" role="alert"></p><div class="run-actions"><button class="button primary" type="submit" value="save">Save new cohort</button><button class="button" type="button" value="cancel">Cancel</button></div></form>`;
   const close=()=>{dialog.close();dialog.remove();};
   dialog.querySelector('[value="cancel"]').addEventListener('click',close);
-  dialog.querySelector('form').addEventListener('submit',event=>{
+  dialog.querySelector('form').addEventListener('submit',async event=>{
     event.preventDefault();
     const name=dialog.querySelector('#new-cohort-name').value.trim();
     const conflict=savedCohorts.some(item=>item.name.trim().toLowerCase()===name.toLowerCase());
     if(!name||conflict){dialog.querySelector('.name-error').textContent=conflict?'A cohort with that name already exists.':'Enter a cohort name.';return;}
     const oldName=definition.name;definition.name=name;
-    if(saveCohort({stay:true,asNew:true}))close();
+    if(await saveCohort({stay:true,asNew:true}))close();
     else definition.name=oldName;
   });
   dialog.addEventListener('close',()=>dialog.remove());
@@ -198,7 +204,7 @@ function saveAsNewCohort(){
 function selectSavedCohort(id){
   const item=savedCohorts.find(entry=>entry.id===id);
   if(!item)throw new Error('That saved cohort is unavailable.');
-  selectedSavedCohortId=id;definition=readDefinition(item.definition);if(desktop)definition.inputPath=desktopSourcePath;selectedRunCohortId='';openedRunId='';
+  selectedSavedCohortId=id;definition=readDefinition(item.definition);selectedRunCohortId='';openedRunId='';revisionNote='';selectedRevisionNumber=item.revisionNumber;
   cohortDirty=false;document.querySelector('#save-state').textContent='Saved on this device';render();
 }
 async function checkDesktopConnection(){
@@ -244,16 +250,21 @@ function runWorkspace(){
   const opened=recentJobs.find(item=>item.id===openedRunId);
   let runFolderReady=false,folderIssue='';
   try{const folder=parseRunFolder(definition.outputPath);if(folder.user!==desktopSettings.serverUser)throw new Error('The run folder must be under the selected profile’s server username.');runFolderReady=true;}catch(error){folderIssue=error.message;}
-  const issues=[...(!profile?['Choose an investigator profile.']:profileIssues()),...(!cohort&&!opened?['Choose a saved cohort.']:[]),...((cohort||opened)&&validateDefinition(definition).length?validateDefinition(definition):[]),...(definition.inputPath!==desktopSourcePath?['The CDM input must be the configured read-only institutional source.']:[]),...(!runFolderReady?[folderIssue]:[])];
+  const issues=[...(!profile?['Choose an investigator profile.']:profileIssues()),...(!cohort&&!opened?['Choose a saved cohort.']:[]),...(cohortDirty&&!opened?['Save the current cohort revision before running SAS.']:[]),...((cohort||opened)&&validateDefinition(definition).length?validateDefinition(definition):[]),...(definition.inputPath!==desktopSourcePath?['The CDM input must be the configured read-only institutional source.']:[]),...(!runFolderReady?[folderIssue]:[])];
   const busy=desktopJob?.status==='running';
   const completed=opened?.status==='completed';
   const delivered=completed&&definition.stopAfter==='DELIVER';
   const resultsReady=!!resultsFolderApproved&&connectSettings.resultsFolder===resultsFolderApproved;
+  const runRevision=opened?.context?.revisionNumber||cohort?.revisionNumber;
+  const runFingerprint=opened?.context?.revisionSha256||cohort?.revisions?.at(-1)?.sha256||'';
+  const provenance=desktopJob?.context?`<details class="job-provenance"><summary>Run provenance</summary><p>Saved cohort revision: ${desktopJob.context.revisionNumber?esc(desktopJob.context.revisionNumber):'Not recorded (older run)'}<br>Definition SHA-256: <code>${esc(desktopJob.context.revisionSha256||'Not recorded')}</code><br>SAS program SHA-256: <code>${esc(desktopJob.context.sasProgramSha256||'Not recorded')}</code><br>ROGER version: ${esc(desktopJob.context.appVersion||'Not recorded')}${desktopJob.context.parentJobId?`<br>Parent cohort run: <code>${esc(desktopJob.context.parentJobId)}</code>`:''}</p><p class="hint">The local job folder also contains the executed SAS program and run-manifest.json.</p></details>`:'';
   const select=panel('01','Choose what to run','Select a saved cohort and an investigator profile, or reopen a completed run below.',`<div class="fields"><div><label for="run-cohort-select">Saved cohort</label><select id="run-cohort-select" data-run-cohort-select>${option('','Choose a saved cohort',selectedRunCohortId)}${savedCohorts.map(item=>`<option value="${esc(item.id)}" ${item.id===selectedRunCohortId?'selected':''} ${validateDefinition(item.definition).length?'disabled':''}>${esc(item.name)}${validateDefinition(item.definition).length?' · Draft':''}</option>`).join('')}</select></div><div><label for="run-profile-select">Investigator profile</label><select id="run-profile-select" data-run-profile-select>${option('','Choose an investigator profile',selectedRunProfileId)}${profiles.map(item=>option(item.id,item.name,selectedRunProfileId)).join('')}</select></div></div><p class="hint">The selected profile supplies your local SAS 9.4 executable, server account, SAS/CONNECT settings, and approved output parent. <button class="text-link" data-action="profile">Edit profiles</button></p>${opened?`<div class="notice info">Reopened ${esc(opened.context?.definition?.name||'SAS run')} from ${esc(opened.startedAt)}. Its original server folder is shown below.</div>`:cohort?`<div class="notice info">${esc(cohort.name)} · ${esc(logicText(treeFor(definition)))}</div>`:''}`);
   const actions=panel('02','Run in SAS','ROGER launches local SAS, then SAS/CONNECT signs on to the server.',`<div class="fields"><div class="full"><label for="run-output">${opened?'Completed server run folder':'New server run folder'}</label><div class="desktop-path"><input id="run-output" data-field="outputPath" value="${esc(definition.outputPath)}" spellcheck="false" ${opened?'readonly':''} placeholder="Select profile and cohort, then choose New name"><button class="button" data-action="new-run-folder" ${!profile?'disabled':''}>${opened?'Start a new run':'New name'}</button></div><p class="hint">${opened?'This is the original output path. Start a new run to create another cut.':'Each cohort cut uses a fresh child folder under your own approved server home.'} The CDM input folder is read-only.</p></div></div><div class="notice ${issues.length?'':'info'}">${issues.length?`<strong>Complete these choices before running</strong><ul>${issues.map(issue=>`<li>${esc(issue)}</li>`).join('')}</ul>`:opened?delivered?'<strong>Completed final cut reopened. You can export results or print a preview.</strong>':'<strong>Checkpoint completed. Review its SAS log, then start a fresh run set to Final data cut for export and preview.</strong>':'<strong>Ready to run the saved cohort.</strong>'}</div><div class="run-actions"><button class="button primary" data-action="run-cohort" ${busy||issues.length||opened?'disabled':''}>Run cohort cut in SAS</button><button class="button" data-action="run-results" ${busy||issues.length||!delivered?'disabled':''}>Export completed results</button><button class="button" data-action="run-preview" ${busy||issues.length||!delivered?'disabled':''}>Print 100-row preview</button><button class="button" data-action="load-desktop-results" ${busy||!profile||!resultsReady?'disabled':''}>Load result CSVs</button></div>${!resultsReady?`<p class="hint">To load CSVs, open Investigator profiles and ${connectSettings.resultsFolder?'reconfirm':'choose'} the protected Windows results folder with Browse.</p>`:''}<p class="hint">Result export and PROC PRINT require a completed final cut. Checkpoints provide stage counts and a 100-row readout in the SAS log/listing.</p>`);
-  const log=panel('03','SAS job and live log','Local SAS messages appear as they are written. SAS/CONNECT may return remote step details only after the step finishes.',`<div class="job-state" id="job-state"><strong>${esc(desktopJob?.status||'No job started')}</strong>${desktopJob?` · ${esc(desktopJob.kind)} · ${esc(desktopJob.startedAt||'')}`:''}</div>${desktopJob?`<p class="job-progress" id="job-progress">${esc(jobProgressText(desktopJob))}</p><p class="hint">Local job folder: <code>${esc(desktopJob.folder||'')}</code></p><button class="button small" data-action="open-job-folder">Open job folder</button><pre class="job-log" tabindex="0">${esc(desktopJob.log||'Waiting for SAS output. If SAS opens a TYPE WINDOW sign-on prompt, enter your credentials there.')}</pre>`:'<p class="hint">Choose a saved cohort and a profile above. The SAS log will appear here while the job runs.</p>'}`);
-  const history=panel('04','Recent local SAS runs','Open a completed cut to reuse its exact definition and server output path after restarting ROGER.',recentJobs.length?`<div class="recent-list">${recentJobs.slice(0,30).map(item=>`<div class="recent-row"><div><strong>${esc(item.context?.definition?.name||item.kind)}</strong><span>${esc(item.status)} · ${esc(item.kind)} · ${esc(item.startedAt||'')}</span><small>${esc(item.context?.definition?.outputPath||'Local synthetic check')}</small></div><button class="button small" data-open-recent="${esc(item.id)}" ${busy?'disabled':''}>Open</button></div>`).join('')}</div>`:'<p class="hint">No local SAS runs yet.</p>');
-  return `<div class="stack">${select}${actions}${log}${history}</div>`;
+  const log=panel('03','SAS job and live log','Local SAS messages appear as they are written. SAS/CONNECT may return remote step details only after the step finishes.',`<div class="job-state" id="job-state"><strong>${esc(desktopJob?.status||'No job started')}</strong>${desktopJob?` · ${esc(desktopJob.kind)} · ${esc(desktopJob.startedAt||'')}`:''}</div>${desktopJob?`<p class="job-progress" id="job-progress">${esc(jobProgressText(desktopJob))}</p><p class="hint">Local job folder: <code>${esc(desktopJob.folder||'')}</code></p><button class="button small" data-action="open-job-folder">Open job folder</button>${provenance}<pre class="job-log" tabindex="0">${esc(desktopJob.log||'Waiting for SAS output. If SAS opens a TYPE WINDOW sign-on prompt, enter your credentials there.')}</pre>`:'<p class="hint">Choose a saved cohort and a profile above. The SAS log will appear here while the job runs.</p>'}`);
+  const history=panel('04','Recent local SAS runs','Open a completed cut to reuse its exact definition and server output path after restarting ROGER.',recentJobs.length?`<div class="recent-list">${recentJobs.slice(0,30).map(item=>`<div class="recent-row"><div><strong>${esc(item.context?.definition?.name||item.kind)}</strong><span>${esc(item.status)} · ${esc(item.kind)} · ${esc(item.startedAt||'')}</span><small>${item.context?.revisionNumber?`Revision ${esc(item.context.revisionNumber)} · ${esc((item.context.revisionSha256||'').slice(0,12))}… · `:''}${esc(item.context?.definition?.outputPath||'Local synthetic check')}</small></div><button class="button small" data-open-recent="${esc(item.id)}" ${busy?'disabled':''}>Open</button></div>`).join('')}</div>`:'<p class="hint">No local SAS runs yet.</p>');
+  const currentRevision=opened?savedCohorts.find(item=>item.id===opened.context?.cohortId)?.revisionNumber:null;
+  const revisionSummary=runRevision?`<div class="notice info">${opened?'Opened run used':'Selected cohort uses'} revision ${esc(runRevision)} · definition SHA-256 <code>${esc(runFingerprint)}</code>${currentRevision&&currentRevision!==runRevision?`<br>This saved cohort is now at revision ${esc(currentRevision)}. Start a new run to use the latest revision.`:''}</div>`:'';
+  return `<div class="stack">${select}${revisionSummary}${actions}${log}${history}</div>`;
 }
 function compareWorkspace(){
   if(savedCohorts.length<2)return panel('02','Compare saved cohorts','Review changes in selection rules before rerunning a study.','<p class="hint">Save a second cohort to compare definitions here.</p>');
@@ -265,13 +276,20 @@ function compareWorkspace(){
   const rows=changes.map(change=>`<tr><th scope="row">${esc(change.field)}</th><td>${esc(change.left)}</td><td>${esc(change.right)}</td></tr>`).join('');
   return panel('02','Compare saved cohorts','Compare the saved specifications. Run folders and canvas positions are excluded.',`<div class="fields"><div><label for="compare-left">Cohort A</label><select id="compare-left" data-compare-left>${choices(left.id)}</select></div><div><label for="compare-right">Cohort B</label><select id="compare-right" data-compare-right>${choices(right.id)}</select></div></div><div class="saved-compare-summary"><strong>${changes.length} changed field${changes.length===1?'':'s'}</strong><span>Only saved versions are compared; unsaved canvas edits are excluded.</span><button class="button small" data-action="download-comparison">Download comparison</button></div>${changes.length?`<div class="table-wrap saved-compare-table"><table><thead><tr><th scope="col">Field</th><th scope="col">${esc(left.name)}</th><th scope="col">${esc(right.name)}</th></tr></thead><tbody>${rows}</tbody></table></div>`:'<p class="notice info">These saved specifications have the same cohort criteria and settings.</p>'}`);
 }
+function revisionWorkspace(cohort){
+  const revision=cohort.revisions.find(item=>item.number===selectedRevisionNumber)||cohort.revisions.at(-1);
+  selectedRevisionNumber=revision.number;
+  const changes=revision.number===cohort.revisionNumber?[]:compareDefinitions(revision.definition,cohort.definition);
+  const choices=[...cohort.revisions].reverse().map(item=>option(String(item.number),`Revision ${item.number} · ${new Date(item.savedAt).toLocaleString()} · ${item.author}`,String(revision.number))).join('');
+  return panel('03','Revision history','Each save preserves its definition and SHA-256 fingerprint. Restoring an older version creates a new revision.',`<div class="fields"><div><label for="revision-select">Inspect revision</label><select id="revision-select" data-revision-select>${choices}</select></div><div><label for="revision-note">Reason for next save (optional)</label><input id="revision-note" data-revision-note maxlength="500" value="${esc(revisionNote)}" placeholder="Why did the criteria change?"></div></div><div class="revision-meta"><strong>Revision ${revision.number}</strong><span>${esc(revision.savedAt)} · ${esc(revision.author)}</span><code title="SHA-256 of the saved definition">${esc(revision.sha256)}</code>${revision.note?`<p>${esc(revision.note)}</p>`:''}</div><div class="run-actions"><button class="button" data-action="restore-revision" ${revision.number===cohort.revisionNumber?'disabled':''}>Restore as new revision</button><button class="button" data-action="download-history">Download revision history</button></div>${revision.number===cohort.revisionNumber?'<p class="hint">This is the current saved revision.</p>':`<p class="hint">${changes.length} changed field${changes.length===1?'':'s'} between this revision and the current revision.</p><div class="table-wrap saved-compare-table"><table><thead><tr><th>Field</th><th>Revision ${revision.number}</th><th>Current revision ${cohort.revisionNumber}</th></tr></thead><tbody>${changes.map(change=>`<tr><th scope="row">${esc(change.field)}</th><td>${esc(change.left)}</td><td>${esc(change.right)}</td></tr>`).join('')||'<tr><td colspan="3">No changed study settings.</td></tr>'}</tbody></table></div>`}`);
+}
 function savedWorkspace(){
   const selected=savedCohorts.find(item=>item.id===selectedSavedCohortId);
   const cards=panel('01','Saved cohort library','Open a cohort to visualize its criteria, review the protocol, and download its SAS program.',`<div class="run-actions"><button class="button" data-action="new-cohort">New cohort</button><button class="button primary" data-action="save-cohort">Save current cohort</button></div>${savedCohorts.length?`<div class="saved-list">${savedCohorts.map(item=>{const issues=validateDefinition(item.definition);return `<div class="saved-card ${selected?.id===item.id?'chosen':''}"><button data-saved-open="${esc(item.id)}"><strong>${esc(item.name)}</strong><span class="cohort-status ${issues.length?'draft':'ready'}">${issues.length?`Draft · ${issues.length} item${issues.length===1?'':'s'} to fix`:'Ready for SAS'}</span><span>Mini-Sentinel CDM · ${item.definition.rules.length+1} event criteria · ${new Date(item.updatedAt).toLocaleString()}</span><small>${esc(logicText(treeFor(item.definition)))}</small></button><button class="button small subtle" data-saved-delete="${esc(item.id)}" aria-label="Delete ${esc(item.name)}">Delete</button></div>`;}).join('')}</div>`:'<div class="empty">No saved cohorts yet. Build a cohort and choose Save cohort.</div>'}`);
   const comparison=compareWorkspace();
   if(!selected)return `<div class="stack">${cards}${comparison}</div>`;
   const selectedIssues=validateDefinition(definition);
-  return `<div class="stack">${cards}${comparison}${panel('03',`Viewing ${esc(selected.name)}`,'The graphical tree and notes below come from this saved cohort.',`<div class="run-actions"><button class="button" data-action="edit-saved">Edit definition</button><button class="button" data-action="save-cohort">Save changes</button>${desktop?`<button class="button primary" data-action="run-saved" ${cohortDirty||selectedIssues.length?'disabled':''}>Select for SAS run</button>`:''}</div>`)}${cohortDirty?'<div class="notice">The current edits are not saved. Save changes before reviewing or downloading this cohort.</div>':selectedIssues.length?'<div class="notice">This saved cohort is a draft. Fix the linked items on the tree before running SAS.</div>':''}${renderTree(definition,catalog,!cohortDirty,selectedIssues.length)}${cohortDirty?'':review()}</div>`;
+  return `<div class="stack">${cards}${comparison}${revisionWorkspace(selected)}${panel('04',`Viewing ${esc(selected.name)}`,'The graphical tree and notes below come from this saved cohort.',`<div class="run-actions"><button class="button" data-action="edit-saved">Edit definition</button><button class="button" data-action="save-cohort">Save changes</button>${desktop?`<button class="button primary" data-action="run-saved" ${cohortDirty||selectedIssues.length?'disabled':''}>Select for SAS run</button>`:''}</div>`)}${cohortDirty?'<div class="notice">The current edits are not saved. Save changes before reviewing or downloading this cohort.</div>':selectedIssues.length?'<div class="notice">This saved cohort is a draft. Fix the linked items on the tree before running SAS.</div>':''}${renderTree(definition,catalog,!cohortDirty,selectedIssues.length)}${cohortDirty?'':review()}</div>`;
 }
 function resultsToolbar(){
   const finalCut=definition.stopAfter==='DELIVER';
@@ -373,9 +391,15 @@ async function runDesktopJob(kind){
       const folder=parseRunFolder(definition.outputPath);
       if(folder.user!==desktopSettings.serverUser)throw new Error('Choose a run folder under the selected profile’s server home.');
     }else if(!sasPathCheck?.ok)throw new Error('Validate your local SAS executable in Investigator profiles.');
+    const cohort=kind==='cohort'?savedCohorts.find(item=>item.id===selectedRunCohortId):null;
+    const parent=kind==='results'||kind==='preview'?recentJobs.find(item=>item.id===openedRunId):null;
+    if(kind==='cohort'){
+      if(!cohort||cohortDirty)throw new Error('Save the current cohort revision before running SAS.');
+      if(await definitionSha256(definition)!==cohort.revisions.at(-1).sha256)throw new Error('The run definition differs from the saved revision. Save the changes before running SAS.');
+    }
     if(view!=='run')setView('run');
     desktopJob={status:'running',kind,startedAt:new Date().toISOString(),log:'Starting SAS…'};render();
-    desktopJob=await desktop.run({kind,definition,settings:connectSettings,sasExecutable:desktopSettings.sasExecutable,serverUser:desktopSettings.serverUser,cohortId:selectedRunCohortId,profileId:selectedRunProfileId});
+    desktopJob=await desktop.run({kind,definition,settings:connectSettings,sasExecutable:desktopSettings.sasExecutable,serverUser:desktopSettings.serverUser,cohortId:kind==='cohort'?cohort.id:parent?.context?.cohortId||'',profileId:selectedRunProfileId,revisionNumber:kind==='cohort'?cohort.revisionNumber:parent?.context?.revisionNumber||0,revisionSha256:kind==='cohort'?cohort.revisions.at(-1).sha256:parent?.context?.revisionSha256||'',parentJobId:parent?.id||''});
     recentJobs=await desktop.jobHistory();
     if(kind!=='synthetic')connectionCheck={ok:true,message:'The SAS/CONNECT host and port were reachable when this job started. SAS sign-on verifies your account.'};
     if(view==='run')render();
@@ -405,7 +429,8 @@ async function openRecentRun(id){
     else{selectedRunProfileId='';toast('This run’s investigator profile is no longer saved on this computer.');}
     selectedRunCohortId=savedCohorts.some(item=>item.id===job.context.cohortId)?job.context.cohortId:'';
     selectedSavedCohortId=selectedRunCohortId;
-    openedRunId=id;desktopJob=job;cohortDirty=false;
+    openedRunId=job.kind==='cohort'?id:recentJobs.find(item=>item.id===job.context.parentJobId&&item.kind==='cohort')?.id||id;
+    desktopJob=job;cohortDirty=false;
     setView('run');
   }catch(error){toast(`Run could not be reopened. ${error.message}`);}
 }
@@ -427,6 +452,20 @@ document.addEventListener('click', e=>{
   }
   const viewButton=e.target.closest('[data-view]'); if(viewButton){setView(viewButton.dataset.view);return;}
   const action=e.target.closest('[data-action]')?.dataset.action;
+  if(action==='download-history'){
+    const cohort=savedCohorts.find(item=>item.id===selectedSavedCohortId);
+    if(!cohort){toast('Open a saved cohort first.');return;}
+    download(JSON.stringify({format:'roger-cohort-history-v1',cohort},null,2),`${cohort.name.toLowerCase().replace(/[^a-z0-9]+/g,'_').slice(0,50)||'cohort'}_history.json`,'application/json');
+    toast('Revision history downloaded.');return;
+  }
+  if(action==='restore-revision'){
+    const cohort=savedCohorts.find(item=>item.id===selectedSavedCohortId);
+    const revision=cohort?.revisions.find(item=>item.number===selectedRevisionNumber);
+    if(!revision||revision.number===cohort.revisionNumber){toast('Choose an older revision to restore.');return;}
+    definition=readDefinition(revision.definition);if(desktop)definition.inputPath=desktopSourcePath;
+    selectedRunCohortId='';openedRunId='';revisionNote=`Restored revision ${revision.number}`;
+    changed();void saveCohort({stay:true});return;
+  }
   if(action==='download-comparison'){
     const left=savedCohorts.find(item=>item.id===compareLeftId),right=savedCohorts.find(item=>item.id===compareRightId);
     if(!left||!right||left.id===right.id){toast('Choose two different saved cohorts to compare.');return;}
@@ -440,7 +479,10 @@ document.addEventListener('click', e=>{
   if(desktop&&action==='run-saved'){
     const item=savedCohorts.find(entry=>entry.id===selectedSavedCohortId);
     if(!item){toast('Open a saved cohort first.');return;}
-    definition=readDefinition(item.definition);definition.inputPath=desktopSourcePath;
+    definition=readDefinition(item.definition);
+    if(definition.inputPath!==desktopSourcePath){
+      definition.inputPath=desktopSourcePath;selectedRunCohortId='';changed();setView('builder');toast('The CDM source path was updated. Save this as a new revision before running SAS.');return;
+    }
     selectedRunCohortId=item.id;selectedRunProfileId='';openedRunId='';definition.outputPath='';setView('run');return;
   }
   if(desktop&&action==='choose-sas'){desktop.chooseSas().then(value=>{if(value){desktopSettings.sasExecutable=value;sasPathCheck=null;persistProfiles();void validateSasPath();}}).catch(error=>toast(error.message));return;}
@@ -492,6 +534,7 @@ document.addEventListener('click', e=>{
 });
 app.addEventListener('input',e=>{
   const el=e.target;
+  if(el.dataset.revisionNote!==undefined){revisionNote=el.value;return;}
   if(el.dataset.desktop){
     const key=el.dataset.desktop,previous=desktopSettings.serverUser;
     desktopSettings[key]=el.value;
@@ -516,6 +559,7 @@ app.addEventListener('input',e=>{
 });
 app.addEventListener('change',e=>{
   const el=e.target;
+  if(el.dataset.revisionSelect!==undefined){selectedRevisionNumber=Number(el.value);render();return;}
   if(el.dataset.compareLeft!==undefined||el.dataset.compareRight!==undefined){
     if(el.dataset.compareLeft!==undefined){compareLeftId=el.value;if(compareLeftId===compareRightId)compareRightId=savedCohorts.find(item=>item.id!==compareLeftId)?.id||'';}
     else{compareRightId=el.value;if(compareRightId===compareLeftId)compareLeftId=savedCohorts.find(item=>item.id!==compareRightId)?.id||'';}
@@ -589,30 +633,42 @@ document.querySelector('#result-files').onchange=async e=>{
 document.querySelector('#import-file').onchange=async e=>{
   const file=e.target.files[0];if(!file)return;
   try{
-    if(file.size>500000)throw new Error('The definition file exceeds 500 KB.');
-    definition=readDefinition(JSON.parse(await file.text()));selectedSavedCohortId='';selectedRunCohortId='';if(desktop)definition.inputPath=desktopSourcePath;changed();setView('graph');toast('Definition opened.');
+    if(file.size>5_000_000)throw new Error('Use a definition or revision-history JSON file under 5 MB.');
+    const value=JSON.parse(await file.text());
+    if(value?.format==='roger-cohort-history-v1'){
+      const [verified]=await readSavedCohorts([value.cohort]);
+      if(savedCohorts.length>=100)throw new Error('The saved cohort library can hold at most 100 cohorts.');
+      const copy={...verified,id:savedCohorts.some(item=>item.id===verified.id)?crypto.randomUUID():verified.id};
+      const next=[copy,...savedCohorts];
+      localStorage.setItem(SAVED_COHORTS_KEY,JSON.stringify(next));
+      savedCohorts=next;selectSavedCohort(copy.id);setView('saved');toast('Revision history imported as a saved cohort.');
+    }else{
+      if(file.size>500000)throw new Error('A single definition file exceeds 500 KB.');
+      definition=readDefinition(value);selectedSavedCohortId='';selectedRunCohortId='';if(desktop)definition.inputPath=desktopSourcePath;changed();setView('graph');toast('Definition opened.');
+    }
   }catch(error){toast(`Could not open definition. ${error.message}`);}finally{e.target.value='';}
 };
 try {
   try{const saved=JSON.parse(localStorage.getItem(CONNECT_KEY));if(saved&&typeof saved==='object')connectSettings={...connectSettings,...saved};}catch(error){toast(`Connection settings could not be loaded. ${error.message}`);}
-  const responses=await Promise.all([fetch('./cdm_engine.sas?v=d3c6c8b02db3')]);
+  const responses=await Promise.all([fetch('./cdm_engine.sas?v=a9cade748050')]);
   if(responses.some(r=>!r.ok))throw new Error('Unable to load the schema or SAS engine.');
   cdmEngine=await responses[0].text();activate();
   let stored;
   try{stored=localStorage.getItem(DRAFT_KEY);}catch(error){toast(`Local draft storage is unavailable. ${error.message}`);}
   if(stored){try{definition=readDefinition(JSON.parse(stored));document.querySelector('#save-state').textContent='Saved on this device';}catch(error){definition=cdm.freshDefinition();toast(`The saved draft could not be loaded. ${error.message}`);}}
   try{
-    const raw=localStorage.getItem(SAVED_COHORTS_KEY);
+    const current=localStorage.getItem(SAVED_COHORTS_KEY);
+    const raw=current||localStorage.getItem(LEGACY_SAVED_COHORTS_KEY);
     if(raw){
-      const {active,retired}=partitionSavedCohorts(JSON.parse(raw));
+      const {active,retired}=await partitionSavedCohorts(JSON.parse(raw));
       if(retired.length){
         const previous=JSON.parse(localStorage.getItem(RETIRED_COHORTS_KEY)||'[]');
         if(!Array.isArray(previous))throw new Error('The retired-definition archive is invalid.');
         const archived=[...new Map([...previous,...retired].map(item=>[item.id,item])).values()];
         localStorage.setItem(RETIRED_COHORTS_KEY,JSON.stringify(archived));
-        localStorage.setItem(SAVED_COHORTS_KEY,JSON.stringify(active));
         toast(`${retired.length} retired definitions were removed from the active library and preserved in local storage.`);
       }
+      if(!current||retired.length)localStorage.setItem(SAVED_COHORTS_KEY,JSON.stringify(active));
       savedCohorts=active;
     }
   }catch(error){toast(`Saved cohort library could not be loaded. ${error.message}`);}

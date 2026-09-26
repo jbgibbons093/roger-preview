@@ -1,14 +1,16 @@
-import { readDefinition, parseCodes } from './cohort.js?v=d3c6c8b02db3';
-import { treeFor, logicText } from './logic.js?v=d3c6c8b02db3';
-import { TABLES } from './cdm.js?v=d3c6c8b02db3';
+import { readDefinition, parseCodes } from './cohort.js?v=a9cade748050';
+import { treeFor, logicText } from './logic.js?v=a9cade748050';
+import { TABLES } from './cdm.js?v=a9cade748050';
 
-export const SAVED_COHORTS_KEY='roger.saved.cohorts.v1';
+export const SAVED_COHORTS_KEY='roger.saved.cohorts.v2';
+export const LEGACY_SAVED_COHORTS_KEY='roger.saved.cohorts.v1';
 export const RETIRED_COHORTS_KEY='roger.saved.retired-market-data.v1';
+export const MAX_REVISIONS=50;
 
-export function partitionSavedCohorts(value){
+export async function partitionSavedCohorts(value){
   if(!Array.isArray(value)||value.length>100)throw new Error('The saved cohort library is invalid.');
   const retired=value.filter(item=>item?.definition?.schemaId==='marketscan-ccae-mdcr-2023-v1');
-  const active=readSavedCohorts(value.filter(item=>!retired.includes(item)));
+  const active=await readSavedCohorts(value.filter(item=>!retired.includes(item)));
   return {active,retired};
 }
 
@@ -18,24 +20,56 @@ export function snapshotDefinition(definition){
   return copy;
 }
 
-export function readSavedCohorts(value){
+function sorted(value){
+  if(Array.isArray(value))return value.map(sorted);
+  if(value&&typeof value==='object')return Object.fromEntries(Object.keys(value).sort().map(key=>[key,sorted(value[key])]));
+  return value;
+}
+export function canonicalDefinition(definition){return JSON.stringify(sorted(snapshotDefinition(definition)));}
+export async function definitionSha256(definition){
+  const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(canonicalDefinition(definition)));
+  return Array.from(new Uint8Array(digest),byte=>byte.toString(16).padStart(2,'0')).join('');
+}
+
+export async function readSavedCohorts(value){
   if(!Array.isArray(value)||value.length>100)throw new Error('The saved cohort library is invalid.');
   const ids=new Set();
-  return value.map(item=>{
+  return Promise.all(value.map(async item=>{
     if(!item||typeof item!=='object'||Array.isArray(item)||!item.id||typeof item.id!=='string'||!item.name||typeof item.name!=='string'||item.name.length>120||!Number.isFinite(Date.parse(item.updatedAt)))throw new Error('A saved cohort entry is invalid.');
     if(ids.has(item.id))throw new Error('The saved cohort library contains duplicate IDs.');
     ids.add(item.id);
     const definition=snapshotDefinition(item.definition);
-    return {id:item.id,name:definition.name,updatedAt:item.updatedAt,definition};
-  });
+    let revisions;
+    if(item.revisions===undefined){
+      revisions=[{number:1,savedAt:item.updatedAt,author:'Legacy saved cohort',note:'Imported from the previous local library',sha256:await definitionSha256(definition),definition}];
+    }else{
+      if(!Array.isArray(item.revisions)||!item.revisions.length||item.revisions.length>MAX_REVISIONS)throw new Error('A cohort has an invalid revision history.');
+      revisions=[];
+      for(const [index,revision] of item.revisions.entries()){
+        if(!revision||revision.number!==index+1||!Number.isFinite(Date.parse(revision.savedAt))||typeof revision.author!=='string'||revision.author.length>80||typeof revision.note!=='string'||revision.note.length>500||!/^[a-f0-9]{64}$/.test(revision.sha256||''))throw new Error('A saved cohort revision is invalid.');
+        const snapshot=snapshotDefinition(revision.definition);
+        if(await definitionSha256(snapshot)!==revision.sha256)throw new Error(`Saved cohort revision ${revision.number} failed its SHA-256 check. Restore a reviewed backup before using it.`);
+        revisions.push({...revision,definition:snapshot});
+      }
+      if(item.revisionNumber!==revisions.length||canonicalDefinition(definition)!==canonicalDefinition(revisions.at(-1).definition))throw new Error('The saved cohort current definition does not match its latest revision.');
+    }
+    return {id:item.id,name:definition.name,updatedAt:revisions.at(-1).savedAt,definition,revisionNumber:revisions.length,revisions};
+  }));
 }
 
-export function upsertSavedCohort(items,id,definition,now=new Date().toISOString()){
+export async function upsertSavedCohort(items,id,definition,now=new Date().toISOString(),metadata={}){
   const snapshot=snapshotDefinition(definition);
-  const cohort={id:id||crypto.randomUUID(),name:snapshot.name,updatedAt:now,definition:snapshot};
+  const previous=items.find(item=>item.id===id);
+  if(previous&&canonicalDefinition(previous.definition)===canonicalDefinition(snapshot))return {items,cohort:previous,createdRevision:false};
+  if(previous?.revisions.length>=MAX_REVISIONS)throw new Error(`This cohort has ${MAX_REVISIONS} revisions. Export its history before creating a new cohort.`);
+  if(!Number.isFinite(Date.parse(now)))throw new Error('The revision timestamp is invalid.');
+  const author=String(metadata.author||'Local investigator').trim().slice(0,80);
+  const note=String(metadata.note||'').trim().slice(0,500);
+  const revision={number:(previous?.revisions.length||0)+1,savedAt:now,author,note,sha256:await definitionSha256(snapshot),definition:snapshot};
+  const cohort={id:id||crypto.randomUUID(),name:snapshot.name,updatedAt:now,definition:snapshot,revisionNumber:revision.number,revisions:[...(previous?.revisions||[]),revision]};
   const next=[cohort,...items.filter(item=>item.id!==cohort.id)];
   if(next.length>100)throw new Error('The saved cohort library can hold at most 100 cohorts.');
-  return {items:next,cohort};
+  return {items:next,cohort,createdRevision:true};
 }
 
 function codeList(rule){
