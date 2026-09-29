@@ -1,16 +1,17 @@
-import * as cdm from './cdm.js?v=41c02c5f97af';
-import { readDefinition, validateDefinition, connectionIssues, requiredTables, compileSas, parseCodes } from './cohort.js?v=41c02c5f97af';
-import { openCodePicker } from './code-picker.js?v=41c02c5f97af';
-import { treeFor, groupsIn, logicText, usesOr, removeCriterion } from './logic.js?v=41c02c5f97af';
-import { renderTree, bindTree } from './cohort-tree.js?v=41c02c5f97af';
-import { selectionProtocol } from './protocol.js?v=41c02c5f97af';
-import { parseCsv, previewRows, quickCounts, missingness, compileQuickCount } from './results.js?v=41c02c5f97af';
-import { parseRunFolder, parseOutputParent } from './paths.js?v=41c02c5f97af';
-import { PROFILE_KEY, DEFAULT_LINK_SCRIPT, createProfile, readProfileStore, profileFromSettings } from './profiles.js?v=41c02c5f97af';
-import { SAVED_COHORTS_KEY, LEGACY_SAVED_COHORTS_KEY, RETIRED_COHORTS_KEY, partitionSavedCohorts, readSavedCohorts, upsertSavedCohort, compareDefinitions, comparisonReport, definitionSha256 } from './saved-cohorts.js?v=41c02c5f97af';
-import { elapsedLabel, jobProgressText } from './job-progress.js?v=41c02c5f97af';
+import * as cdm from './cdm.js?v=68c34411cda1';
+import { readDefinition, validateDefinition, connectionIssues, requiredTables, compileSas, parseCodes } from './cohort.js?v=68c34411cda1';
+import { openCodePicker } from './code-picker.js?v=68c34411cda1';
+import { treeFor, groupsIn, logicText, usesOr, removeCriterion } from './logic.js?v=68c34411cda1';
+import { renderTree, bindTree } from './cohort-tree.js?v=68c34411cda1';
+import { selectionProtocol } from './protocol.js?v=68c34411cda1';
+import { parseCsv, previewRows, quickCounts, missingness, compileQuickCount } from './results.js?v=68c34411cda1';
+import { parseRunFolder, parseOutputParent } from './paths.js?v=68c34411cda1';
+import { PROFILE_KEY, DEFAULT_LINK_SCRIPT, createProfile, readProfileStore, profileFromSettings } from './profiles.js?v=68c34411cda1';
+import { SAVED_COHORTS_KEY, LEGACY_SAVED_COHORTS_KEY, RETIRED_COHORTS_KEY, partitionSavedCohorts, readSavedCohorts, upsertSavedCohort, compareDefinitions, comparisonReport, definitionSha256 } from './saved-cohorts.js?v=68c34411cda1';
+import { elapsedLabel, jobProgressText } from './job-progress.js?v=68c34411cda1';
+import { ANALYSIS_METHODS, freshAnalysis, validateAnalysis, compileAnalysis } from './analysis.js?v=68c34411cda1';
 
-const DRAFT_KEY = 'roger.cohort.cdm.v1', CONNECT_KEY='roger.sasconnect.v1', DESKTOP_KEY='roger.desktop.v1';
+const DRAFT_KEY = 'roger.cohort.cdm.v1', CONNECT_KEY='roger.sasconnect.v1', DESKTOP_KEY='roger.desktop.v1', ANALYSIS_KEY='roger.analysis.v1';
 const desktop=window.rogerDesktop||null;
 let definition = cdm.freshDefinition();
 let connectSettings={host:'',port:12600,script:DEFAULT_LINK_SCRIPT,resultsFolder:'',includeCohort:false};
@@ -23,6 +24,7 @@ let recentJobs=[],openedRunId='',resultsFolderApproved='';
 let desktopDefaultHost='';
 const TABLES=cdm.TABLES, DOMAINS=cdm.DOMAINS;
 let cdmEngine;
+let analysisEngine='',analysisSpec=null,analysisListing='';
 
 const populationLabel=()=>`Mini-Sentinel CDM · ${definition.yearStart}–${definition.yearEnd}`;
 const ageLabel=()=> 'Age at index';
@@ -160,7 +162,7 @@ function review() {
     <details class="panel"><summary class="details-toggle">Study population selection protocol</summary><pre class="protocol-preview">${esc(selectionProtocol(definition,catalog))}</pre></details>
     <section class="panel"><div class="panel-head"><div><h2>Generated SAS program</h2><p>The full extraction logic is included in the download.</p></div></div><pre class="code-preview" tabindex="0" aria-label="Generated SAS program">${esc(code)}</pre></section>
     <section class="panel"><div class="panel-head"><div><h2>Cohort attrition</h2><p>Counts will be produced by SAS after execution.</p></div></div><table><thead><tr><th>Selection step</th><th>People remaining</th></tr></thead><tbody><tr><td>${definition.indexOrder==='LAST'?'Last':'First'} matching index event</td><td>Awaiting SAS run</td></tr><tr><td>Demographic requirements</td><td>Awaiting SAS run</td></tr>${definition.enrollment?'<tr><td>Enrollment requirements</td><td>Awaiting SAS run</td></tr>':''}${usesOr(treeFor(definition))?'<tr><td>Combined AND/OR condition tree</td><td>Awaiting SAS run</td></tr>':definition.rules.map((r,i)=>`<tr><td>Criterion ${i+1} · ${r.mode==='INCLUDE'?'Inclusion':'Exclusion'}</td><td>Awaiting SAS run</td></tr>`).join('')}</tbody></table><div class="panel-body"><p class="hint">Final delivery also writes covariate prevalence, index-month and age-band counts, missingness, extract counts, and a 200-row cohort preview. Open the completed CSVs in Diagnostics.</p><button class="button small" data-action="diagnostics">Open diagnostics</button></div></section>
-  </div><aside class="summary panel"><div class="summary-head"><p class="eyebrow">EXPORT PACKAGE</p><h2>${errors.length?'Draft needs work.':'Ready for your SAS workspace.'}</h2></div><div class="summary-body"><p class="review-summary-text" style="font-size:14px">${errors.length?'Fix the definition issues linked in the cohort tree before downloading a runnable SAS program.':'A self-contained SAS 9.4 program with the cohort rules, code lists, selection steps, and requested extracts.'}</p>${mappingIssues.length?`<div class="notice mapping-notice"><strong>${mappingIssues.length} table mappings remain</strong><br>Fill in the mappings in the builder and regenerate the program. SAS stops until mappings are supplied.</div>`:'<div class="notice info mapping-notice">Table names are configured. Confirm their delivery and year range before running.</div>'}<button class="button primary full-button" data-action="export-sas" ${errors.length?'disabled':''}>Download SAS program ↓</button><button class="button full-button" data-action="export-json">Download definition</button><button class="button full-button" data-action="export-protocol">Download selection protocol</button><button class="button subtle full-button" data-action="builder">Back to definition</button><hr><p class="export-meta">The SAS 9.4 synthetic check and institutional schema preflight passed. Review each definition-specific run and its diagnostics.</p><p class="hint">For a first check, <a href="./synthetic_cdm_fixture.sas?v=41c02c5f97af" download>download the CDM SAS check</a>. Run it in a separate fresh SAS session before using research data.</p></div></aside></div>`;
+  </div><aside class="summary panel"><div class="summary-head"><p class="eyebrow">EXPORT PACKAGE</p><h2>${errors.length?'Draft needs work.':'Ready for your SAS workspace.'}</h2></div><div class="summary-body"><p class="review-summary-text" style="font-size:14px">${errors.length?'Fix the definition issues linked in the cohort tree before downloading a runnable SAS program.':'A self-contained SAS 9.4 program with the cohort rules, code lists, selection steps, and requested extracts.'}</p>${mappingIssues.length?`<div class="notice mapping-notice"><strong>${mappingIssues.length} table mappings remain</strong><br>Fill in the mappings in the builder and regenerate the program. SAS stops until mappings are supplied.</div>`:'<div class="notice info mapping-notice">Table names are configured. Confirm their delivery and year range before running.</div>'}<button class="button primary full-button" data-action="export-sas" ${errors.length?'disabled':''}>Download SAS program ↓</button><button class="button full-button" data-action="export-json">Download definition</button><button class="button full-button" data-action="export-protocol">Download selection protocol</button><button class="button subtle full-button" data-action="builder">Back to definition</button><hr><p class="export-meta">The SAS 9.4 synthetic check and institutional schema preflight passed. Review each definition-specific run and its diagnostics.</p><p class="hint">For a first check, <a href="./synthetic_cdm_fixture.sas?v=68c34411cda1" download>download the CDM SAS check</a>. Run it in a separate fresh SAS session before using research data.</p></div></aside></div>`;
 }
 function codebook() { return cdmCodebook(); }
 function activeProfile(){return profiles.find(profile=>profile.id===activeProfileId);}
@@ -346,6 +348,80 @@ function diagnostics(){
   const sasTables=['diagnostics','attrition','counts','missingness','extract_counts','covariate_specs','predictor_specs','outcome_specs'].filter(name=>resultTables.has(name));
   return `<div class="stack">${resultsToolbar("diagnostics")}<section class="panel"><div class="panel-head"><div><h2>SAS run diagnostics</h2><p>These tables were calculated by SAS over the completed cut.</p></div></div><div class="panel-body">${sasTables.length?`<div class="diagnostic-cards">${sasTables.map(name=>`<button class="diagnostic-card" type="button" data-result-select="${name}"><strong>${name.replaceAll('_',' ').toUpperCase()}</strong><span>${resultTables.get(name).rows.length.toLocaleString()} rows · Inspect full table in Data preview →</span></button>`).join('')}</div>`:'<p class="hint">Open DIAGNOSTICS, ATTRITION, COUNTS, MISSINGNESS, and EXTRACT_COUNTS CSV files from SAS to show authoritative full-run results here.</p>'}${[["diagnostics","SAS summary"],["attrition","Cohort attrition"],["counts","SAS counts"],["missingness","SAS missingness"],["extract_counts","Extract counts"]].map(([name,label])=>diagnosticTableSection(name,label)).join("")}</div></section><section class="panel"><div class="panel-head"><div><h2>Quick counts</h2><p>Explore values in the imported CSV, then download a read-only SAS count for the entire completed dataset.</p></div></div><div class="panel-body"><div class="results-controls"><div><label for="count-table">Imported dataset</label><select id="count-table" data-result-table>${[...resultTables.keys()].map(name=>option(name,name.toUpperCase(),selectedResult)).join('')}</select></div><div><label for="count-column">Count by</label><select id="count-column" data-count-column>${table.columns.map(c=>option(c,c,col)).join('')}</select></div><div><label for="count-split">Optional split</label><select id="count-split" data-count-split><option value="">None</option>${table.columns.filter(c=>c!==col).map(c=>option(c,c,split)).join('')}</select></div><div><label for="count-search">Filter imported rows</label><input id="count-search" data-result-search value="${esc(resultState.search)}" placeholder="Type, then press Enter"></div><button class="button" data-action="apply-result-search">Apply filter</button><button class="button" data-action="export-quick-count" ${definition.stopAfter==='DELIVER'?'':'disabled'}>Download full-data SAS count</button></div><p class="hint">Local preview: ${counts.total.toLocaleString()} imported rows, ${counts.distinct.toLocaleString()} distinct ${split?'combinations':'values'}${resultState.search?` after filtering for “${esc(resultState.search)}”`:''}. A loaded COHORT_PREVIEW file contains at most 200 rows; these local counts are exploratory. For COHORT_PREVIEW, the downloaded SAS counts the complete COHORT table. It reads your completed run folder without writing to it.</p>${tableMarkup(split?[col,split,'Rows','Percent']:[col,'Rows','Percent'],counts.rows.map(r=>split?[r.value,r.group,r.count.toLocaleString(),`${r.percent.toFixed(1)}%`]:[r.value,r.count.toLocaleString(),`${r.percent.toFixed(1)}%`]))}${counts.truncated?'<p class="hint">Showing the top 100 values. The SAS count includes all levels.</p>':''}</div></section><section class="panel"><div class="panel-head"><div><h2>Imported-data missingness</h2><p>Fast local check for the selected CSV.</p></div></div>${tableMarkup(['Column','Missing','Percent'],missingness(table,{search:resultState.search}).map(r=>[r.column,r.missing.toLocaleString(),`${r.percent.toFixed(1)}%`]))}</section></div>`;
 }
+function analysisRun(){
+  return recentJobs.find(item=>item.id===openedRunId&&item.kind==='cohort'&&item.status==='completed'&&item.context?.definition?.stopAfter==='DELIVER');
+}
+function analysisOutputPath(){
+  const parent=parseOutputParent(desktopSettings.outputParent,desktopSettings.serverUser);
+  const stamp=new Date().toISOString().replace(/[-:.]/g,'').slice(0,15);
+  return `${parent}/roger_analysis_${stamp}_${crypto.randomUUID().slice(0,6)}`;
+}
+function analysisIssues(){
+  const method=ANALYSIS_METHODS.find(item=>item.id===analysisSpec?.method);
+  const run=analysisRun();
+  const issues=validateAnalysis(analysisSpec,{
+    serverUser:desktopSettings.serverUser,
+    definition:method?.input==='cohort'?run?.context?.definition:null,
+    completedCohortPath:method?.input==='cohort'?run?.context?.definition?.outputPath||'':''
+  });
+  if(!desktop)issues.unshift('Run analyses in the installed ROGER desktop app with your own SAS 9.4 profile.');
+  else{
+    if(!selectedRunProfileId)issues.unshift('Choose an investigator profile.');
+    if(method?.input==='cohort'&&run?.context?.profileId!==selectedRunProfileId)issues.push('Choose the profile that ran this cohort.');
+    if(profileIssues().length)issues.push(...profileIssues());
+    if(desktopJob?.status==='running')issues.push('Wait for the current SAS job to finish.');
+    if(desktopJob?.kind==='analysis'&&desktopJob.status!=='running'&&analysisSpec.outputPath===desktopJob.context?.analysis?.outputPath)issues.push('Choose New name before rerunning this analysis.');
+  }
+  return issues;
+}
+function analysisWorkspace(){
+  analysisSpec||=freshAnalysis(definition);
+  const spec=analysisSpec,method=ANALYSIS_METHODS.find(item=>item.id===spec.method),run=analysisRun();
+  const cohortMethods=method?.input==='cohort';
+  const runs=recentJobs.filter(item=>item.kind==='cohort'&&item.status==='completed'&&item.context?.definition?.stopAfter==='DELIVER');
+  const candidates=['age_at_index','sex_female',...(definition.covariates||[]).filter(item=>item.predictor).map(item=>`cov_${item.key}`)];
+  const outcomes=(definition.outcomes||[]).map(item=>`out_${item.key}`);
+  const issues=analysisIssues();
+  let program='';
+  if(!issues.length)try{program=compileAnalysis(spec,{engine:analysisEngine,definition,serverUser:desktopSettings.serverUser,completedCohortPath:run?.context?.definition?.outputPath||'',connection:connectSettings});}catch(error){issues.push(error.message);}
+  const methodCards=`<div class="analysis-methods">${ANALYSIS_METHODS.map(item=>`<button type="button" class="analysis-method ${item.id===spec.method?'selected':''}" data-analysis-method="${item.id}" aria-pressed="${item.id===spec.method}"><strong>${esc(item.label)}</strong><small>${esc(item.description)}</small></button>`).join('')}</div>`;
+  const profileSelect=desktop?`<div><label for="analysis-profile">Investigator profile</label><select id="analysis-profile" data-analysis-profile>${option('','Choose a profile',selectedRunProfileId)}${profiles.map(item=>option(item.id,item.name,selectedRunProfileId)).join('')}</select></div>`:'';
+  const runSelect=cohortMethods?`<div class="full"><label for="analysis-run">Completed final cohort cut</label><select id="analysis-run" data-analysis-run>${option('','Choose a completed cohort run',run?.id||'')}${runs.map(item=>option(item.id,`${item.context?.definition?.name||'Cohort'} · ${item.startedAt||''} · ${item.context?.definition?.outputPath||''}`,run?.id||'')).join('')}</select></div>`:'';
+  const pathFields=`<div class="fields">${profileSelect}${runSelect}<div class="full"><label for="analysis-source">Read-only server input folder</label><input id="analysis-source" data-analysis-field="sourcePath" value="${esc(spec.sourcePath)}" placeholder="/storage/storage1/PHShome/<user>/<run>" ${cohortMethods?'readonly':''}></div><div><label for="analysis-dataset">SAS input dataset</label><input id="analysis-dataset" data-analysis-field="dataset" value="${esc(spec.dataset)}" ${cohortMethods?'readonly':''}></div><div class="full"><label for="analysis-output">New server analysis folder</label><div class="desktop-path"><input id="analysis-output" data-analysis-field="outputPath" value="${esc(spec.outputPath)}" placeholder="New folder under your approved server home"><button class="button" data-action="analysis-new-output" ${desktop?'':'disabled'}>New name</button></div><p class="hint">ROGER opens the input read-only. SAS writes only to this new folder and local WORK.</p></div></div>`;
+  const baseline=cohortMethods?`<div class="fields"><div><label for="analysis-outcome">Post-index outcome</label><select id="analysis-outcome" data-analysis-field="outcome">${outcomes.length?outcomes.map(value=>option(value,value,spec.outcome)).join(''):option('','Build an outcome in Cohort definition',spec.outcome)}</select></div><div class="full"><span class="field-label">Baseline predictors</span><div class="source-checks">${candidates.map(value=>`<label class="check-row"><input type="checkbox" data-analysis-covariate="${esc(value)}" ${spec.covariates.includes(value)?'checked':''}>${esc(value)}</label>`).join('')}</div></div></div>`:method?.input==='series'?`<div class="fields"><div><label for="analysis-time">Integer period</label><input id="analysis-time" data-analysis-field="time" value="${esc(spec.time)}"></div><div><label for="analysis-outcome">Aggregated outcome</label><input id="analysis-outcome" data-analysis-field="outcome" value="${esc(spec.outcome)}"></div></div>`:`<div class="fields"><div><label for="analysis-id">Person ID</label><input id="analysis-id" data-analysis-field="id" value="${esc(spec.id)}"></div><div><label for="analysis-treatment">${spec.method==='CCW'?'Initiation indicator':spec.method==='DID'||spec.method==='EVENT'?'Treated group':'Treatment in interval'}</label><input id="analysis-treatment" data-analysis-field="treatment" value="${esc(spec.treatment)}"></div><div><label for="analysis-outcome">Outcome</label><input id="analysis-outcome" data-analysis-field="outcome" value="${esc(spec.outcome)}"></div><div><label for="analysis-time">Integer period</label><input id="analysis-time" data-analysis-field="time" value="${esc(spec.time)}"></div>${['MSM','CCW'].includes(spec.method)?`<div><label for="analysis-censor">Observed censor indicator</label><input id="analysis-censor" data-analysis-field="censor" value="${esc(spec.censor)}"></div>`:''}${['MSM','CCW'].includes(spec.method)?`<div class="full"><label for="analysis-covariates">Numeric covariates, separated by commas</label><input id="analysis-covariates" data-analysis-covariates value="${esc(spec.covariates.join(', '))}"></div>`:''}</div>`;
+  const options=`<div class="fields">${spec.method==='TABLE1'?`<div><label for="analysis-adjustment">Post-adjustment Table 1</label><select id="analysis-adjustment" data-analysis-field="adjustment">${[['NONE','Before only'],['PSM','Before and after matching'],['IPTW','Before and after IPTW']].map(([value,label])=>option(value,label,spec.adjustment)).join('')}</select></div>`:''}${spec.method==='PSM'||spec.method==='TABLE1'&&spec.adjustment==='PSM'?`<div><label for="analysis-caliper">Logit-PS caliper, SD units</label><input id="analysis-caliper" type="number" step="0.01" min="0.01" max="2" data-analysis-field="caliper" value="${esc(spec.caliper)}"></div>`:''}${['IPTW','TTE','MSM','CCW'].includes(spec.method)||spec.method==='TABLE1'&&spec.adjustment==='IPTW'?`<div><label for="analysis-floor">Propensity floor</label><input id="analysis-floor" type="number" step="0.001" min="0.0001" max="0.1" data-analysis-field="psFloor" value="${esc(spec.psFloor)}"></div><div><label for="analysis-cap">Weight cap</label><input id="analysis-cap" type="number" step="1" min="1" max="1000" data-analysis-field="weightCap" value="${esc(spec.weightCap)}"></div>`:''}${spec.method==='CCW'?`<div><label for="analysis-grace">Initiation grace period, intervals</label><input id="analysis-grace" type="number" min="1" max="3650" data-analysis-field="grace" value="${esc(spec.grace)}"></div>`:''}${['ITS','EVENT'].includes(spec.method)?`<div><label for="analysis-intervention">Intervention/adoption period</label><input id="analysis-intervention" type="number" min="1" data-analysis-field="intervention" value="${esc(spec.intervention)}"></div>`:''}${spec.method==='EVENT'?`<div><label for="analysis-pre">Pre-periods (minus 1 is reference)</label><input id="analysis-pre" type="number" min="2" max="12" data-analysis-field="eventPre" value="${esc(spec.eventPre)}"></div><div><label for="analysis-post">Post-periods</label><input id="analysis-post" type="number" min="1" max="12" data-analysis-field="eventPost" value="${esc(spec.eventPost)}"></div>`:''}</div>`;
+  const contract=method?.input==='cohort'?'The completed COHORT must contain one row per PatID, treatment_flag, selected baseline covariates, and a post-index outcome flag.':method?.input==='series'?'Prepare a separate aggregated time-series dataset under your own server home. It must have one row per integer period.':'Prepare a separate prepared panel dataset under your own server home. It must have one row per person-period; see the method-specific requirements below.';
+  const methodNote=spec.method==='MSM'?'Treatment, outcome, and censor are interval-level 0/1 indicators; covariates must be measured before each interval’s treatment.':spec.method==='CCW'?'Treatment marks first initiation in an interval. Strategies are initiate by the grace deadline versus no initiation during the grace period.':spec.method==='DID'?'Exactly two periods coded 0 and 1 per person; group is fixed and the outcome is continuous. Parallel trends remains an investigator assumption.':spec.method==='ITS'?'One aggregated row per period with at least eight periods on each side; outcome is continuous. SAS/ETS PROC AUTOREG is required.':spec.method==='EVENT'?'A single shared adoption period and never-treated controls; group is fixed. The pre-period at minus 1 is the reference.':spec.method==='TTE'?'Point treatment at index and a fixed-horizon binary outcome with assured follow-up; dynamic strategies require a longitudinal panel.':'Review overlap, covariate balance, missingness, and weight distributions before interpreting model estimates.';
+  const job=desktopJob?.kind==='analysis'?`<section class="panel"><div class="panel-head"><div><h2>Analysis SAS job</h2><p>${esc(desktopJob.status)} · ${esc(desktopJob.startedAt||'')}</p></div></div><div class="panel-body"><p class="hint">Local job folder: <code>${esc(desktopJob.folder||'')}</code></p><button class="button small" data-action="open-job-folder">Open job folder</button><pre class="job-log" tabindex="0">${esc(desktopJob.log||'Waiting for SAS output.')}</pre></div></section>`:'';
+  const listing=desktopJob?.kind==='analysis'&&desktopJob.status!=='running'?`<section class="panel"><div class="panel-head"><div><h2>SAS results</h2><p>Model estimates and procedure diagnostics from the finished job.</p></div></div><div class="panel-body"><button class="button" data-action="analysis-listing">Show SAS listing</button>${analysisListing?`<pre class="job-log" tabindex="0">${esc(analysisListing)}</pre>`:''}</div></section>`:'';
+  return `<div class="stack">${panel('01','Analysis methods','Choose a method and inspect its data requirements before running SAS.',methodCards)}${panel('02','Data and destination',contract,pathFields)}${panel('03','Variables and design',methodNote,baseline+options)}${panel('04','Validate and run','Generated SAS runs through the selected investigator profile. The input library is read-only.',`${issues.length?`<div class="notice"><strong>Resolve before running</strong><ul>${issues.map(issue=>`<li>${esc(issue)}</li>`).join('')}</ul></div>`:'<div class="notice info">Ready to generate the SAS program.</div>'}<div class="run-actions"><button class="button" data-action="analysis-download" ${issues.length?'disabled':''}>Download SAS program</button><button class="button primary" data-action="analysis-run" ${issues.length||!desktop?'disabled':''}>Run analysis in SAS</button></div>${program?`<details><summary>Review generated SAS</summary><pre class="code-preview">${esc(program)}</pre></details>`:''}`)}${job}${listing}</div>`;
+}
+function saveAnalysisDraft(){
+  try{localStorage.setItem(ANALYSIS_KEY,JSON.stringify(analysisSpec));}
+  catch(error){toast(`Analysis draft could not be saved. ${error.message}`);}
+}
+async function runAnalysisJob(){
+  try{
+    const issues=analysisIssues();
+    if(issues.length)throw new Error(issues.join(' '));
+    const run=analysisRun();
+    const method=ANALYSIS_METHODS.find(item=>item.id===analysisSpec.method);
+    analysisListing='';
+    desktopJob={kind:'analysis',status:'running',startedAt:new Date().toISOString(),log:'Starting SAS analysis…'};
+    render();
+    desktopJob=await desktop.run({
+      kind:'analysis',analysis:structuredClone(analysisSpec),definition:structuredClone(definition),
+      settings:connectSettings,sasExecutable:desktopSettings.sasExecutable,serverUser:desktopSettings.serverUser,
+      profileId:selectedRunProfileId,parentJobId:method.input==='cohort'?run.id:'',
+      completedCohortPath:method.input==='cohort'?run.context.definition.outputPath:''
+    });
+    recentJobs=await desktop.jobHistory();
+    render();
+  }catch(error){
+    desktopJob=await desktop.job().catch(()=>null);
+    render();toast(error.message);
+  }
+}
 function render() {
   activate();
   document.querySelector('.heading .eyebrow').textContent=populationLabel();
@@ -357,7 +433,7 @@ function render() {
   document.querySelector('footer span:last-child').textContent='Mini-Sentinel CDM v3.0';
   document.querySelector('.tabs [data-view="codebook"]').textContent='CDM dictionary';
   document.querySelectorAll('[data-view]').forEach(b=>{ b.classList.toggle(b.classList.contains('side-link')?'selected':'active',b.dataset.view===view); b.setAttribute('aria-current',b.dataset.view===view?'page':'false'); });
-  app.innerHTML=view==='graph'?renderTree(definition,catalog,false,validateDefinition(definition).length):view==='builder'?builder():view==='saved'?savedWorkspace():view==='profile'?profileWorkspace():view==='preview'?preview():view==='diagnostics'?diagnostics():view==='run'?runWorkspace():codebook();
+  app.innerHTML=view==='graph'?renderTree(definition,catalog,false,validateDefinition(definition).length):view==='builder'?builder():view==='saved'?savedWorkspace():view==='profile'?profileWorkspace():view==='preview'?preview():view==='diagnostics'?diagnostics():view==='analysis'?analysisWorkspace():view==='run'?runWorkspace():codebook();
   if(view==='saved'&&selectedSavedCohortId&&!cohortDirty&&desktop){
     const holder=app.querySelector('.summary-body');
     const button=document.createElement('button');
@@ -463,11 +539,23 @@ async function openRecentRun(id){
     selectedRunCohortId=savedCohorts.some(item=>item.id===job.context.cohortId)?job.context.cohortId:'';
     selectedSavedCohortId=selectedRunCohortId;
     openedRunId=job.kind==='cohort'?id:recentJobs.find(item=>item.id===job.context.parentJobId&&item.kind==='cohort')?.id||id;
-    desktopJob=job;cohortDirty=false;
-    setView('run');
+    desktopJob=job;cohortDirty=false;analysisListing='';
+    if(job.kind==='analysis'){
+      analysisSpec={...freshAnalysis(definition,job.context.analysis?.method),...job.context.analysis};
+      saveAnalysisDraft();
+      setView('analysis');
+    }else setView('run');
   }catch(error){toast(`Run could not be reopened. ${error.message}`);}
 }
 document.addEventListener('click', e=>{
+  const analysisMethod=e.target.closest('[data-analysis-method]');
+  if(analysisMethod){
+    const next=analysisMethod.dataset.analysisMethod;
+    analysisSpec=freshAnalysis(definition,next);
+    if(ANALYSIS_METHODS.find(item=>item.id===next)?.input==='cohort')analysisSpec.sourcePath=analysisRun()?.context?.definition?.outputPath||'';
+    if(desktop&&selectedRunProfileId)try{analysisSpec.outputPath=analysisOutputPath();}catch{/* Profile validation will explain the missing path. */}
+    saveAnalysisDraft();render();return;
+  }
   const browse=e.target.closest('[data-browse]');
   if(browse){const index=Number(browse.dataset.browse), r=eventRule(index);openCodePicker({domain:r.domain,codes:r.codes,label:catalog.domains[r.domain].label,onApply:codes=>{r.codes=codes;document.querySelector(`#${index===-1?'index':index===-2?'control-index':`rule-${index}`}-codes`).value=codes;changed();updateSummary();}}).catch(error=>toast(error.message));return;}
   const covBrowse=e.target.closest('[data-cov-browse]');
@@ -487,6 +575,23 @@ document.addEventListener('click', e=>{
   }
   const viewButton=e.target.closest('[data-view]'); if(viewButton){setView(viewButton.dataset.view);return;}
   const action=e.target.closest('[data-action]')?.dataset.action;
+  if(action==='analysis-listing'){
+    desktop.readListing().then(value=>{analysisListing=value||'No SAS listing was produced.';render();}).catch(error=>toast(error.message));
+    return;
+  }
+  if(action==='analysis-new-output'){
+    try{analysisSpec.outputPath=analysisOutputPath();saveAnalysisDraft();render();}
+    catch(error){toast(error.message);}return;
+  }
+  if(action==='analysis-download'){
+    try{
+      if(analysisIssues().length)throw new Error(analysisIssues().join(' '));
+      const program=compileAnalysis(analysisSpec,{engine:analysisEngine,definition,serverUser:desktopSettings.serverUser,completedCohortPath:analysisRun()?.context?.definition?.outputPath||'',connection:connectSettings});
+      download(program,`roger_${analysisSpec.method.toLowerCase()}_analysis.sas`,'text/plain');
+      toast('SAS analysis program downloaded.');
+    }catch(error){toast(error.message);}return;
+  }
+  if(action==='analysis-run'){void runAnalysisJob();return;}
   if(action==='download-history'){
     const cohort=savedCohorts.find(item=>item.id===selectedSavedCohortId);
     if(!cohort){toast('Open a saved cohort first.');return;}
@@ -598,6 +703,39 @@ app.addEventListener('input',e=>{
 });
 app.addEventListener('change',e=>{
   const el=e.target;
+  if(desktop&&el.dataset.analysisProfile!==undefined){
+    const selected=profiles.find(item=>item.id===el.value);
+    selectedRunProfileId=selected?.id||'';
+    if(selected){useProfile(selected);void validateSasPath();}
+    analysisSpec.outputPath='';
+    if(selected)try{analysisSpec.outputPath=analysisOutputPath();}catch{/* Validation shows the profile issue. */}
+    saveAnalysisDraft();render();return;
+  }
+  if(desktop&&el.dataset.analysisRun!==undefined){
+    if(!el.value){openedRunId='';analysisSpec.sourcePath='';saveAnalysisDraft();render();return;}
+    const method=analysisSpec.method;
+    void openRecentRun(el.value).then(()=>{
+      if(openedRunId===el.value){
+        analysisSpec=freshAnalysis(definition,method);
+        analysisSpec.sourcePath=definition.outputPath;
+        try{analysisSpec.outputPath=analysisOutputPath();}catch{/* Validation shows the output issue. */}
+        saveAnalysisDraft();setView('analysis');
+      }
+    });return;
+  }
+  if(el.dataset.analysisField!==undefined){
+    analysisSpec[el.dataset.analysisField]=el.type==='number'?(el.value===''?NaN:Number(el.value)):el.value;
+    saveAnalysisDraft();render();return;
+  }
+  if(el.dataset.analysisCovariates!==undefined){
+    analysisSpec.covariates=el.value.split(',').map(value=>value.trim()).filter(Boolean);
+    saveAnalysisDraft();render();return;
+  }
+  if(el.dataset.analysisCovariate!==undefined){
+    const value=el.dataset.analysisCovariate;
+    analysisSpec.covariates=el.checked?[...analysisSpec.covariates,value]:analysisSpec.covariates.filter(item=>item!==value);
+    saveAnalysisDraft();render();return;
+  }
   if(el.dataset.comparisonToggle!==undefined){
     if(el.checked)definition.comparison={start:definition.start,end:definition.end,overlap:'EARLIEST',controlIndex:{...structuredClone(definition.index),codes:''}};
     else{delete definition.comparison;for(const cov of definition.covariates)delete cov.arm;}
@@ -698,12 +836,16 @@ document.querySelector('#import-file').onchange=async e=>{
 };
 try {
   try{const saved=JSON.parse(localStorage.getItem(CONNECT_KEY));if(saved&&typeof saved==='object')connectSettings={...connectSettings,...saved};}catch(error){toast(`Connection settings could not be loaded. ${error.message}`);}
-  const responses=await Promise.all([fetch('./cdm_engine.sas?v=41c02c5f97af')]);
+  const responses=await Promise.all([fetch('./cdm_engine.sas?v=68c34411cda1'),fetch('./analysis_engine.sas?v=68c34411cda1')]);
   if(responses.some(r=>!r.ok))throw new Error('Unable to load the schema or SAS engine.');
-  cdmEngine=await responses[0].text();activate();
+  [cdmEngine,analysisEngine]=await Promise.all(responses.map(r=>r.text()));activate();
   let stored;
   try{stored=localStorage.getItem(DRAFT_KEY);}catch(error){toast(`Local draft storage is unavailable. ${error.message}`);}
   if(stored){try{definition=readDefinition(JSON.parse(stored));document.querySelector('#save-state').textContent='Saved on this device';}catch(error){definition=cdm.freshDefinition();toast(`The saved draft could not be loaded. ${error.message}`);}}
+  try{
+    const storedAnalysis=JSON.parse(localStorage.getItem(ANALYSIS_KEY)||'null');
+    if(storedAnalysis&&ANALYSIS_METHODS.some(item=>item.id===storedAnalysis.method))analysisSpec={...freshAnalysis(definition,storedAnalysis.method),...storedAnalysis};
+  }catch{/* A broken local analysis draft cannot block the cohort workspace. */}
   try{
     const current=localStorage.getItem(SAVED_COHORTS_KEY);
     const raw=current||localStorage.getItem(LEGACY_SAVED_COHORTS_KEY);
@@ -745,14 +887,14 @@ try {
       const previous=desktopJob?.status;desktopJob=state;
       recentJobs=[state,...recentJobs.filter(item=>item.id!==state.id)].slice(0,50);
       if(state.kind==='cohort'&&state.status==='completed')openedRunId=state.id;
-      if(view==='run'&&previous===state.status&&app.querySelector('.job-log')){
+      if(['run','analysis'].includes(view)&&previous===state.status&&app.querySelector('.job-log')){
         const log=app.querySelector('.job-log'),follow=log.scrollTop+log.clientHeight>=log.scrollHeight-30;
         log.textContent=state.log||'Waiting for SAS output. If SAS opens a sign-on prompt, enter your credentials there.';
         if(follow)log.scrollTop=log.scrollHeight;
         const label=app.querySelector('#job-state');if(label)label.textContent=`${state.status} · ${state.kind} · ${state.startedAt||''}`;
         const progress=app.querySelector('#job-progress');if(progress)progress.textContent=jobProgressText(state);
         updateJobBadge();
-      }else if(view==='run')render();
+      }else if(['run','analysis'].includes(view))render();
       else updateJobBadge();
     });
   }
