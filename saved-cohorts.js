@@ -1,6 +1,6 @@
-import { readDefinition, parseCodes } from './cohort.js?v=b247f1c0d48e';
-import { treeFor, logicText } from './logic.js?v=b247f1c0d48e';
-import { TABLES } from './cdm.js?v=b247f1c0d48e';
+import { readDefinition, parseCodes } from './cohort.js?v=41c02c5f97af';
+import { treeFor, logicText } from './logic.js?v=41c02c5f97af';
+import { TABLES } from './cdm.js?v=41c02c5f97af';
 
 export const SAVED_COHORTS_KEY='roger.saved.cohorts.v2';
 export const LEGACY_SAVED_COHORTS_KEY='roger.saved.cohorts.v1';

@@ -1,6 +1,6 @@
-import { treeFor, logicText, usesOr } from './logic.js?v=b247f1c0d48e';
-import { validateDefinition, parseCodes } from './cohort.js?v=b247f1c0d48e';
-import { requiredTables, expandMapping, outcomeFollowupComplete } from './cdm.js?v=b247f1c0d48e';
+import { treeFor, logicText, usesOr } from './logic.js?v=41c02c5f97af';
+import { validateDefinition, parseCodes } from './cohort.js?v=41c02c5f97af';
+import { requiredTables, expandMapping, outcomeFollowupComplete } from './cdm.js?v=41c02c5f97af';
 
 export function selectionProtocol(d,catalog){
   const errors=validateDefinition(d),tree=treeFor(d),order=d.indexOrder==='LAST'?'last':'first';
