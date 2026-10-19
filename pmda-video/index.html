@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex,nofollow">
+  <meta name="theme-color" content="#101c32">
+  <title>ROGER | Full demonstration</title>
+  <style>
+    :root { color-scheme:dark; --bg:#101c32; --panel:#18273f; --line:#30425b; --ink:#f6f4ed; --muted:#b4c2d2; --accent:#7ce4ce; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.55 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+    main { width:min(1200px,100%); margin:auto; padding:clamp(18px,4vw,48px); }
+    .brand { display:flex; align-items:center; gap:12px; margin-bottom:32px; letter-spacing:.12em; font-weight:750; }
+    .mark { border:1px solid #54788b; border-radius:8px; color:var(--accent); padding:0 11px; font-size:27px; }
+    .eyebrow { color:var(--accent); text-transform:uppercase; font-size:12px; font-weight:700; letter-spacing:.14em; margin:0 0 10px; }
+    h1 { font-size:clamp(25px,4.5vw,43px); line-height:1.17; letter-spacing:-.025em; max-width:800px; margin:0 0 12px; }
+    .meta { color:var(--muted); margin:0 0 24px; }
+    .player { overflow:hidden; background:#080f1c; border:1px solid var(--line); border-radius:12px; box-shadow:0 20px 55px #0004; }
+    video { display:block; width:100%; aspect-ratio:16/9; background:#080f1c; }
+    .toolbar { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; padding:12px; background:var(--panel); }
+    .skip { display:flex; gap:8px; }
+    button,select { font:inherit; border:1px solid #455a74; background:#20324e; color:var(--ink); border-radius:7px; min-height:44px; padding:8px 12px; cursor:pointer; }
+    button:hover,select:hover { border-color:var(--accent); }
+    button:focus-visible,select:focus-visible { outline:3px solid var(--accent); outline-offset:3px; }
+    label { font-size:14px; color:var(--muted); display:flex; gap:8px; align-items:center; }
+    h2 { margin:32px 0 14px; font-size:19px; }
+    .chapters { list-style:none; padding:0; margin:0; display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+    .chapters button { width:100%; min-height:66px; display:flex; gap:14px; align-items:flex-start; text-align:left; background:var(--panel); border-color:var(--line); padding:13px 16px; }
+    .chapters time { color:var(--accent); font-variant-numeric:tabular-nums; font-size:14px; padding-top:2px; flex:0 0 42px; }
+    .chapters button[aria-current="true"] { border-color:var(--accent); background:#203a47; }
+    #error { margin:16px 0 0; color:#ffcbab; }
+    footer { color:var(--muted); font-size:13px; padding-top:28px; }
+    @media (max-width:620px) { .brand { margin-bottom:24px; } .chapters { grid-template-columns:1fr; } .toolbar { padding:10px; gap:8px; } button,select { font-size:14px; padding:8px 10px; } label { gap:5px; } main { padding-bottom:max(28px,env(safe-area-inset-bottom)); } }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="brand" aria-label="ROGER"><span class="mark" aria-hidden="true">R</span> ROGER</div>
+    <p class="eyebrow">Full demonstration</p>
+    <h1>From research question to reviewable study</h1>
+    <p class="meta">20 minutes 3 seconds · Eight chapters</p>
+    <div class="player">
+      <video id="video" controls playsinline preload="metadata" poster="poster.jpg" controlslist="nodownload" aria-label="Full ROGER demonstration video">
+        <source src="ROGER_PMDA_complete_20min.mp4" type="video/mp4">
+        Your browser does not support video playback.
+      </video>
+      <div class="toolbar">
+        <div class="skip"><button type="button" data-skip="-10">Back 10s</button><button type="button" data-skip="10">Forward 10s</button></div>
+        <label>Speed <select id="speed" aria-label="Playback speed"><option value="0.75">0.75×</option><option value="1" selected>1×</option><option value="1.25">1.25×</option><option value="1.5">1.5×</option><option value="2">2×</option></select></label>
+      </div>
+    </div>
+    <p id="error" role="status" hidden>Playback could not load. Please refresh this page.</p>
+    <h2>Chapters</h2>
+    <ol class="chapters">
+      <li><button type="button" data-time="0" aria-current="true"><time>00:00</time><span>ROGER connects the research workflow</span></button></li>
+      <li><button type="button" data-time="175.308"><time>02:55</time><span>Protocol and cohort review</span></button></li>
+      <li><button type="button" data-time="325.198"><time>05:25</time><span>Medication definitions and observation</span></button></li>
+      <li><button type="button" data-time="469.081"><time>07:49</time><span>iDEAS screening and findings</span></button></li>
+      <li><button type="button" data-time="612.075"><time>10:12</time><span>The comparative study design</span></button></li>
+      <li><button type="button" data-time="763.063"><time>12:43</time><span>Configure and run native CCW</span></button></li>
+      <li><button type="button" data-time="911.674"><time>15:12</time><span>Hospitalization results and figure editing</span></button></li>
+      <li><button type="button" data-time="1033.561"><time>17:14</time><span>Diagnostics, code and exports</span></button></li>
+    </ol>
+    <footer>ROGER · Full demonstration</footer>
+  </main>
+  <script>
+    const video = document.getElementById('video');
+    const chapters = [...document.querySelectorAll('[data-time]')];
+    document.querySelectorAll('[data-skip]').forEach(button => button.addEventListener('click', () => {
+      video.currentTime = Math.max(0, Math.min(video.duration || 1203.291, video.currentTime + Number(button.dataset.skip)));
+    }));
+    chapters.forEach(button => button.addEventListener('click', () => {
+      video.currentTime = Number(button.dataset.time);
+      video.play().catch(() => {});
+      video.scrollIntoView({behavior:'smooth', block:'center'});
+    }));
+    document.getElementById('speed').addEventListener('change', event => { video.playbackRate = Number(event.target.value); });
+    video.addEventListener('timeupdate', () => {
+      const current = chapters.reduce((active, button) => Number(button.dataset.time) <= video.currentTime ? button : active, chapters[0]);
+      chapters.forEach(button => button.setAttribute('aria-current', String(button === current)));
+    });
+    video.addEventListener('error', () => { document.getElementById('error').hidden = false; });
+  </script>
+</body>
+</html>
