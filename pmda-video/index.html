@@ -39,10 +39,10 @@
     <div class="brand" aria-label="ROGER"><span class="mark" aria-hidden="true">R</span> ROGER</div>
     <p class="eyebrow">Full demonstration</p>
     <h1>From research question to reviewable study</h1>
-    <p class="meta">20 minutes 3 seconds · Eight chapters</p>
+    <p class="meta">15 minutes 1 second · Eight chapters</p>
     <div class="player">
       <video id="video" controls playsinline preload="metadata" poster="poster.jpg" controlslist="nodownload" aria-label="Full ROGER demonstration video">
-        <source src="ROGER_PMDA_complete_20min.mp4?v=d3abcff50416" type="video/mp4">
+        <source src="ROGER_PMDA_complete_20min.mp4?v=472f00032233" type="video/mp4">
         Your browser does not support video playback.
       </video>
       <div class="toolbar">
@@ -53,14 +53,14 @@
     <p id="error" role="status" hidden>Playback could not load. Please refresh this page.</p>
     <h2>Chapters</h2>
     <ol class="chapters">
-      <li><button type="button" data-time="0" aria-current="true"><time>00:00</time><span>ROGER connects the research workflow</span></button></li>
-      <li><button type="button" data-time="175.308"><time>02:55</time><span>Protocol and cohort review</span></button></li>
-      <li><button type="button" data-time="325.198"><time>05:25</time><span>Medication definitions and observation</span></button></li>
-      <li><button type="button" data-time="469.081"><time>07:49</time><span>iDEAS screening and findings</span></button></li>
-      <li><button type="button" data-time="612.075"><time>10:12</time><span>The comparative study design</span></button></li>
-      <li><button type="button" data-time="763.063"><time>12:43</time><span>Configure and run native CCW</span></button></li>
-      <li><button type="button" data-time="911.674"><time>15:12</time><span>Hospitalization results and figure editing</span></button></li>
-      <li><button type="button" data-time="1033.561"><time>17:14</time><span>Diagnostics, code and exports</span></button></li>
+      <li><button type="button" data-time="0.000000" aria-current="true"><time>00:00</time><span>ROGER connects the research workflow</span></button></li>
+      <li><button type="button" data-time="126.666667"><time>02:06</time><span>Protocol and cohort review</span></button></li>
+      <li><button type="button" data-time="250.041667"><time>04:10</time><span>Medication definitions and observation</span></button></li>
+      <li><button type="button" data-time="354.041667"><time>05:54</time><span>iDEAS screening and findings</span></button></li>
+      <li><button type="button" data-time="455.958333"><time>07:35</time><span>The comparative study design</span></button></li>
+      <li><button type="button" data-time="580.250000"><time>09:40</time><span>Configure and run native CCW</span></button></li>
+      <li><button type="button" data-time="698.875000"><time>11:38</time><span>Hospitalization results and figure editing</span></button></li>
+      <li><button type="button" data-time="767.958333"><time>12:47</time><span>Diagnostics, code and exports</span></button></li>
     </ol>
     <footer>ROGER · Full demonstration</footer>
   </main>
@@ -68,7 +68,7 @@
     const video = document.getElementById('video');
     const chapters = [...document.querySelectorAll('[data-time]')];
     document.querySelectorAll('[data-skip]').forEach(button => button.addEventListener('click', () => {
-      video.currentTime = Math.max(0, Math.min(video.duration || 1203.291, video.currentTime + Number(button.dataset.skip)));
+      video.currentTime = Math.max(0, Math.min(video.duration || 900.5416666666666, video.currentTime + Number(button.dataset.skip)));
     }));
     chapters.forEach(button => button.addEventListener('click', () => {
       video.currentTime = Number(button.dataset.time);
